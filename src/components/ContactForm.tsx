@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { BookUser } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -48,6 +49,25 @@ export default function ContactForm({ open, onClose, onSave, initial }: Props) {
       : defaultForm,
   );
   const [saving, setSaving] = useState(false);
+  const supportsContactPicker = typeof navigator !== 'undefined' && 'contacts' in navigator;
+
+  async function handleImportContact() {
+    if (!navigator.contacts) return;
+    try {
+      const results = await navigator.contacts.select(['name', 'tel'], { multiple: false });
+      if (!results.length) return;
+      const picked = results[0];
+      const name = picked.name?.[0]?.trim() ?? '';
+      const phone = picked.tel?.[0]?.trim() ?? '';
+      setForm((prev) => ({
+        ...prev,
+        ...(name && { name }),
+        ...(phone && { phone }),
+      }));
+    } catch {
+      // User cancelled — do nothing
+    }
+  }
 
   // Sync form when switching between contacts (edit) or opening a new form
   useEffect(() => {
@@ -90,6 +110,18 @@ export default function ContactForm({ open, onClose, onSave, initial }: Props) {
         </SheetHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {supportsContactPicker && (
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              onClick={handleImportContact}
+            >
+              <BookUser className="h-4 w-4 mr-2" />
+              Aus Kontakten importieren
+            </Button>
+          )}
+
           <div className="space-y-1.5">
             <Label htmlFor="name">Name *</Label>
             <Input
