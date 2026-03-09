@@ -115,18 +115,33 @@ function scheduleWeek(contacts: Contact[], settings: Settings, weekStart: Date):
   }
 
   const result: ScheduledCall[] = [];
-  let beruflichIdx = 0;
-  let privatIdx = 0;
+  const usedDates = new Set<string>();
+
+  function pickSlot(
+    slots: { date: string; time: string }[],
+    contact: Contact,
+  ): { date: string; time: string } | undefined {
+    const earliest = !contact.last_called_at
+      ? new Date(new Date(contact.created_at).getTime() + 48 * 60 * 60 * 1000)
+      : null;
+    return slots.find((s) => {
+      if (usedDates.has(s.date)) return false;
+      if (earliest) {
+        const [h, m] = s.time.split(':').map(Number);
+        const slotTime = new Date(s.date + 'T00:00:00');
+        slotTime.setHours(h, m, 0, 0);
+        if (slotTime < earliest) return false;
+      }
+      return true;
+    });
+  }
 
   for (const contact of selected) {
-    if (contact.type === 'beruflich') {
-      if (beruflichIdx < beruflichSlots.length) {
-        result.push({ contact, ...beruflichSlots[beruflichIdx++] });
-      }
-    } else {
-      if (privatIdx < privatSlots.length) {
-        result.push({ contact, ...privatSlots[privatIdx++] });
-      }
+    const pool = contact.type === 'beruflich' ? beruflichSlots : privatSlots;
+    const slot = pickSlot(pool, contact);
+    if (slot) {
+      result.push({ contact, ...slot });
+      usedDates.add(slot.date);
     }
   }
   return result;
