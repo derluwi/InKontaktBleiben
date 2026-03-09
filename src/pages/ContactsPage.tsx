@@ -128,6 +128,7 @@ export default function ContactsPage() {
                     size="icon"
                     className="h-8 w-8"
                     onClick={() => { setEditContact(contact); setFormOpen(true); }}
+                    title="Kontakt bearbeiten"
                   >
                     <Pencil className="h-4 w-4" />
                   </Button>
@@ -136,6 +137,7 @@ export default function ContactsPage() {
                     size="icon"
                     className="h-8 w-8 text-destructive hover:text-destructive"
                     onClick={() => setDeleteContact(contact)}
+                    title="Kontakt löschen"
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
@@ -147,6 +149,7 @@ export default function ContactsPage() {
       )}
 
       <ContactForm
+        key={editContact?.id ?? 'new'}
         open={formOpen}
         onClose={() => { setFormOpen(false); setEditContact(null); }}
         onSave={handleSave}

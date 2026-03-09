@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -48,6 +48,22 @@ export default function ContactForm({ open, onClose, onSave, initial }: Props) {
       : defaultForm,
   );
   const [saving, setSaving] = useState(false);
+
+  // Sync form when switching between contacts (edit) or opening a new form
+  useEffect(() => {
+    setForm(
+      initial
+        ? {
+            name: initial.name,
+            type: initial.type,
+            frequency: initial.frequency,
+            phone: initial.phone ?? '',
+            notes: initial.notes ?? '',
+            last_called_at: initial.last_called_at ?? '',
+          }
+        : defaultForm,
+    );
+  }, [initial]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
