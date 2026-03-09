@@ -83,28 +83,36 @@ export function scheduleWeek(
 
   const selected = sorted.slice(0, settings.max_calls_per_week);
 
+  // Helper: skip slots that are already in the past
+  const now = new Date();
+  function isFuture(date: string, time: string): boolean {
+    const [h, m] = time.split(':').map(Number);
+    const slot = new Date(date + 'T00:00:00');
+    slot.setHours(h, m, 0, 0);
+    return slot > now;
+  }
+
   // Build slot pools
   // Beruflich: Mon–Fri at work_call_time
-  const beruflichSlots = [0, 1, 2, 3, 4].map((i) => ({
-    date: toISODate(addDays(weekStart, i)),
-    time: settings.work_call_time,
-  }));
+  const beruflichSlots = [0, 1, 2, 3, 4]
+    .map((i) => ({ date: toISODate(addDays(weekStart, i)), time: settings.work_call_time }))
+    .filter((s) => isFuture(s.date, s.time));
 
   // Privat: chronologisch — Wochentagabende zuerst (Mo–Fr), dann Wochenende (Sa–So)
   const privatSlots: { date: string; time: string }[] = [];
   if (settings.allow_private_weekday_evening) {
     [0, 1, 2, 3, 4].forEach((i) => {
-      privatSlots.push({
-        date: toISODate(addDays(weekStart, i)),
-        time: settings.private_weekday_time,
-      });
+      const date = toISODate(addDays(weekStart, i));
+      if (isFuture(date, settings.private_weekday_time))
+        privatSlots.push({ date, time: settings.private_weekday_time });
     });
   }
   if (settings.allow_private_weekend) {
-    privatSlots.push(
-      { date: toISODate(addDays(weekStart, 5)), time: settings.private_weekend_time },
-      { date: toISODate(addDays(weekStart, 6)), time: settings.private_weekend_time },
-    );
+    [5, 6].forEach((i) => {
+      const date = toISODate(addDays(weekStart, i));
+      if (isFuture(date, settings.private_weekend_time))
+        privatSlots.push({ date, time: settings.private_weekend_time });
+    });
   }
 
   const result: ScheduledCall[] = [];
