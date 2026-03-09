@@ -3,7 +3,7 @@ import { Phone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/lib/supabase';
-import { scheduleWeek, getWeekStart, toISODate } from '@/lib/scheduling';
+import { scheduleWeek, getWeekStart, toISODate, findSlotForContact } from '@/lib/scheduling';
 import type { Contact, Settings, ScheduledCall } from '@/types';
 
 const DAY_NAMES = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
@@ -24,14 +24,58 @@ export default function WeeklyViewPage() {
   const weekKey = toISODate(weekStart); // local timezone, not UTC
 
   async function load() {
-    const [{ data: contacts }, { data: settingsData }] = await Promise.all([
+    const [{ data: contacts }, { data: settingsData }, { data: storedPlan }] = await Promise.all([
       supabase.from('contacts').select('*'),
       supabase.from('settings').select('*').eq('id', 1).single(),
+      supabase.from('weekly_plan').select('*').eq('week_start', weekKey),
     ]);
-    if (contacts && settingsData) {
-      setSettings(settingsData as Settings);
-      setSchedule(scheduleWeek(contacts as Contact[], settingsData as Settings, weekStart));
+
+    if (!contacts || !settingsData) { setLoading(false); return; }
+    setSettings(settingsData as Settings);
+
+    if (!storedPlan || storedPlan.length === 0) {
+      // No frozen plan yet for this week — compute and store it
+      const plan = scheduleWeek(contacts as Contact[], settingsData as Settings, weekStart);
+      if (plan.length > 0) {
+        await supabase.from('weekly_plan').insert(
+          plan.map(({ contact, date, time }) => ({
+            week_start: weekKey,
+            contact_id: contact.id,
+            scheduled_date: date,
+            scheduled_time: time,
+          })),
+        );
+      }
+      setSchedule(plan);
+    } else {
+      // Frozen plan exists — slot in new contacts that have no entry yet
+      const plannedIds = new Set(storedPlan.map((p) => p.contact_id as string));
+      const usedDates = new Set<string>(storedPlan.map((p) => p.scheduled_date as string));
+      const unplanned = (contacts as Contact[]).filter((c) => !plannedIds.has(c.id));
+
+      if (unplanned.length > 0) {
+        const additions: { week_start: string; contact_id: string; scheduled_date: string; scheduled_time: string }[] = [];
+        for (const contact of unplanned) {
+          const slot = findSlotForContact(contact, settingsData as Settings, weekStart, usedDates);
+          if (slot) {
+            additions.push({ week_start: weekKey, contact_id: contact.id, scheduled_date: slot.date, scheduled_time: slot.time });
+            usedDates.add(slot.date);
+          }
+        }
+        if (additions.length > 0) {
+          await supabase.from('weekly_plan').insert(additions);
+          storedPlan.push(...additions);
+        }
+      }
+
+      const contactMap = new Map((contacts as Contact[]).map((c) => [c.id, c]));
+      const schedule: ScheduledCall[] = storedPlan
+        .map((p) => ({ contact: contactMap.get(p.contact_id as string)!, date: p.scheduled_date as string, time: p.scheduled_time as string }))
+        .filter((s) => s.contact)
+        .sort((a, b) => a.date.localeCompare(b.date));
+      setSchedule(schedule);
     }
+
     setLoading(false);
   }
 

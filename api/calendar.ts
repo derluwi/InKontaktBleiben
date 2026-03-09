@@ -229,14 +229,40 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  const { data: contacts } = await supabase.from('contacts').select('*');
-  if (!contacts) {
-    res.status(500).send('Error loading contacts');
+  const weekStart = getWeekStart();
+  const weekKey = toISODate(weekStart);
+
+  // Paused week → empty calendar
+  if (settings.paused_weeks?.includes(weekKey)) {
+    res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="kontakte.ics"');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.status(200).send(generateIcs([]));
     return;
   }
 
-  const weekStart = getWeekStart();
-  const calls = scheduleWeek(contacts as Contact[], settings as Settings, weekStart);
+  let calls: ScheduledCall[];
+
+  // Prefer the frozen weekly plan stored by the frontend
+  const { data: storedPlan } = await supabase
+    .from('weekly_plan')
+    .select('scheduled_date, scheduled_time, contacts(*)')
+    .eq('week_start', weekKey);
+
+  if (storedPlan && storedPlan.length > 0) {
+    calls = (storedPlan as Array<{ scheduled_date: string; scheduled_time: string; contacts: Contact }>)
+      .map((p) => ({ contact: p.contacts, date: p.scheduled_date, time: p.scheduled_time }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  } else {
+    // Fall back to live computation (e.g. ICS fetched before app was opened this week)
+    const { data: contacts } = await supabase.from('contacts').select('*');
+    if (!contacts) {
+      res.status(500).send('Error loading contacts');
+      return;
+    }
+    calls = scheduleWeek(contacts as Contact[], settings as Settings, weekStart);
+  }
+
   const ics = generateIcs(calls);
 
   res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
