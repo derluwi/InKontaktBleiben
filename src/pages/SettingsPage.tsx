@@ -34,7 +34,7 @@ export default function SettingsPage() {
   }
 
   async function copyCalendarUrl() {
-    const url = `${window.location.origin}/api/calendar.ics?token=${settings?.calendar_token}`;
+    const url = `${window.location.origin}/api/calendar?token=${settings?.calendar_token}`;
     await navigator.clipboard.writeText(url);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -44,7 +44,7 @@ export default function SettingsPage() {
     return <div className="flex items-center justify-center h-64 text-muted-foreground">Lädt…</div>;
   }
 
-  const calendarUrl = `${window.location.origin}/api/calendar.ics?token=${settings.calendar_token}`;
+  const calendarUrl = `${window.location.origin}/api/calendar?token=${settings.calendar_token}`;
 
   return (
     <div className="max-w-lg mx-auto">
