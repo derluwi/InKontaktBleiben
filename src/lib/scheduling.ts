@@ -1,0 +1,120 @@
+import type { Contact, Settings, ScheduledCall } from '@/types';
+
+const FREQUENCY_DAYS: Record<string, number> = {
+  'wöchentlich': 7,
+  'zweiwöchentlich': 14,
+  'monatlich': 30,
+  'quartalsweise': 90,
+};
+
+function addDays(date: Date, days: number): Date {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
+function toISODate(date: Date): string {
+  return date.toISOString().split('T')[0];
+}
+
+/** Monday of the current week (local time) */
+export function getWeekStart(date: Date = new Date()): Date {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay(); // 0=Sun, 1=Mon, ...
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return d;
+}
+
+/** Target date: when the contact is next due */
+function getTargetDate(contact: Contact): Date {
+  if (!contact.last_called_at) {
+    return new Date(contact.created_at);
+  }
+  const lastCalled = new Date(contact.last_called_at);
+  return addDays(lastCalled, FREQUENCY_DAYS[contact.frequency] ?? 30);
+}
+
+/** Days overdue relative to a reference date (negative = not due yet) */
+export function getDaysOverdue(contact: Contact, referenceDate: Date = new Date()): number {
+  const target = getTargetDate(contact);
+  return Math.floor((referenceDate.getTime() - target.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+/** Human-readable due status */
+export function getDueLabel(contact: Contact): string {
+  const days = getDaysOverdue(contact);
+  if (days < -1) return `in ${Math.abs(days)} Tagen`;
+  if (days === -1) return 'morgen fällig';
+  if (days === 0) return 'heute fällig';
+  if (days === 1) return '1 Tag überfällig';
+  return `${days} Tage überfällig`;
+}
+
+/** Generate the weekly schedule for the week starting at weekStart */
+export function scheduleWeek(
+  contacts: Contact[],
+  settings: Settings,
+  weekStart: Date,
+): ScheduledCall[] {
+  const weekKey = toISODate(weekStart);
+  if (settings.paused_weeks.includes(weekKey)) return [];
+
+  // Sort contacts by urgency
+  const sorted = [...contacts].sort((a, b) => {
+    const aNew = !a.last_called_at;
+    const bNew = !b.last_called_at;
+    if (aNew && !bNew) return -1;
+    if (!aNew && bNew) return 1;
+    const aDue = getDaysOverdue(a, weekStart);
+    const bDue = getDaysOverdue(b, weekStart);
+    if (bDue !== aDue) return bDue - aDue;
+    // Stable tiebreaker: compare IDs alphabetically
+    return a.id < b.id ? -1 : 1;
+  });
+
+  const selected = sorted.slice(0, settings.max_calls_per_week);
+
+  // Build slot pools
+  // Beruflich: Mon–Fri at work_call_time
+  const beruflichSlots = [0, 1, 2, 3, 4].map((i) => ({
+    date: toISODate(addDays(weekStart, i)),
+    time: settings.work_call_time,
+  }));
+
+  // Privat: weekends first (Sat, Sun), then weekday evenings
+  const privatSlots: { date: string; time: string }[] = [];
+  if (settings.allow_private_weekend) {
+    privatSlots.push(
+      { date: toISODate(addDays(weekStart, 5)), time: settings.private_weekend_time },
+      { date: toISODate(addDays(weekStart, 6)), time: settings.private_weekend_time },
+    );
+  }
+  if (settings.allow_private_weekday_evening) {
+    [0, 1, 2, 3, 4].forEach((i) => {
+      privatSlots.push({
+        date: toISODate(addDays(weekStart, i)),
+        time: settings.private_weekday_time,
+      });
+    });
+  }
+
+  const result: ScheduledCall[] = [];
+  let beruflichIdx = 0;
+  let privatIdx = 0;
+
+  for (const contact of selected) {
+    if (contact.type === 'beruflich') {
+      if (beruflichIdx < beruflichSlots.length) {
+        result.push({ contact, ...beruflichSlots[beruflichIdx++] });
+      }
+    } else {
+      if (privatIdx < privatSlots.length) {
+        result.push({ contact, ...privatSlots[privatIdx++] });
+      }
+    }
+  }
+
+  return result;
+}
