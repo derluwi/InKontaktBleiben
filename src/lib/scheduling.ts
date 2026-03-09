@@ -90,14 +90,8 @@ export function scheduleWeek(
     time: settings.work_call_time,
   }));
 
-  // Privat: weekends first (Sat, Sun), then weekday evenings
+  // Privat: chronologisch — Wochentagabende zuerst (Mo–Fr), dann Wochenende (Sa–So)
   const privatSlots: { date: string; time: string }[] = [];
-  if (settings.allow_private_weekend) {
-    privatSlots.push(
-      { date: toISODate(addDays(weekStart, 5)), time: settings.private_weekend_time },
-      { date: toISODate(addDays(weekStart, 6)), time: settings.private_weekend_time },
-    );
-  }
   if (settings.allow_private_weekday_evening) {
     [0, 1, 2, 3, 4].forEach((i) => {
       privatSlots.push({
@@ -105,6 +99,12 @@ export function scheduleWeek(
         time: settings.private_weekday_time,
       });
     });
+  }
+  if (settings.allow_private_weekend) {
+    privatSlots.push(
+      { date: toISODate(addDays(weekStart, 5)), time: settings.private_weekend_time },
+      { date: toISODate(addDays(weekStart, 6)), time: settings.private_weekend_time },
+    );
   }
 
   const result: ScheduledCall[] = [];
