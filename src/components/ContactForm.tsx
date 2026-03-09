@@ -49,7 +49,7 @@ export default function ContactForm({ open, onClose, onSave, initial }: Props) {
       : defaultForm,
   );
   const [saving, setSaving] = useState(false);
-  const supportsContactPicker = typeof navigator !== 'undefined' && 'contacts' in navigator;
+  const supportsContactPicker = !!navigator.contacts?.select;
 
   async function handleImportContact() {
     if (!navigator.contacts) return;
