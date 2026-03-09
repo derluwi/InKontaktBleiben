@@ -50,15 +50,20 @@ function addDays(date: Date, days: number): Date {
   return d;
 }
 
+/** Format date as YYYY-MM-DD in Europe/Berlin timezone (Vercel runs in UTC) */
 function toISODate(date: Date): string {
-  return date.toISOString().split('T')[0];
+  // sv-SE locale uses YYYY-MM-DD format natively
+  return date.toLocaleDateString('sv-SE', { timeZone: 'Europe/Berlin' });
 }
 
 function getWeekStart(date: Date = new Date()): Date {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
+  // Parse current date in Berlin timezone
+  const berlinDateStr = date.toLocaleDateString('sv-SE', { timeZone: 'Europe/Berlin' });
+  const [year, month, day] = berlinDateStr.split('-').map(Number);
+  // Create a Date at midnight local (Node UTC) representing the Berlin date
+  const d = new Date(year, month - 1, day);
+  const dow = d.getDay();
+  const diff = dow === 0 ? -6 : 1 - dow;
   d.setDate(d.getDate() + diff);
   return d;
 }

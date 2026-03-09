@@ -3,7 +3,7 @@ import { Phone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/lib/supabase';
-import { scheduleWeek, getWeekStart } from '@/lib/scheduling';
+import { scheduleWeek, getWeekStart, toISODate } from '@/lib/scheduling';
 import type { Contact, Settings, ScheduledCall } from '@/types';
 
 const DAY_NAMES = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
@@ -21,7 +21,7 @@ export default function WeeklyViewPage() {
   const [pausing, setPausing] = useState(false);
 
   const weekStart = getWeekStart();
-  const weekKey = weekStart.toISOString().split('T')[0];
+  const weekKey = toISODate(weekStart); // local timezone, not UTC
 
   async function load() {
     const [{ data: contacts }, { data: settingsData }] = await Promise.all([
@@ -101,7 +101,7 @@ export default function WeeklyViewPage() {
         <ul className="divide-y">
           {schedule.map(({ contact, date, time }) => {
             const dateLabel = formatDate(date);
-            const isToday = date === new Date().toISOString().split('T')[0];
+            const isToday = date === toISODate(new Date());
 
             return (
               <li key={contact.id} className={`px-4 py-3 flex items-center gap-3 ${isToday ? 'bg-accent/40' : ''}`}>
