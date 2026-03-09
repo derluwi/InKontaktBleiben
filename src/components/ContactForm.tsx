@@ -104,7 +104,7 @@ export default function ContactForm({ open, onClose, onSave, initial }: Props) {
 
   return (
     <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
-      <SheetContent side="bottom" className="rounded-t-2xl max-h-[90svh] overflow-y-auto">
+      <SheetContent side="bottom" className="rounded-t-2xl max-h-[90svh] overflow-y-auto overflow-x-hidden w-full box-border px-4">
         <SheetHeader className="mb-4">
           <SheetTitle>{initial ? 'Kontakt bearbeiten' : 'Neuer Kontakt'}</SheetTitle>
         </SheetHeader>

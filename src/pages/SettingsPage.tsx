@@ -51,7 +51,7 @@ export default function SettingsPage() {
       {/* Header */}
       <div className="sticky top-0 bg-background/95 backdrop-blur-sm border-b px-4 py-3 flex items-center justify-between z-10">
         <h1 className="text-lg font-semibold">Einstellungen</h1>
-        <Button size="sm" onClick={handleSave} disabled={saving}>
+        <Button size="sm" onClick={handleSave} disabled={saving} title="Einstellungen speichern">
           {saved ? <><Check className="h-4 w-4 mr-1" /> Gespeichert</> : saving ? 'Speichern…' : 'Speichern'}
         </Button>
       </div>
@@ -151,7 +151,7 @@ export default function SettingsPage() {
             <Label>Abo-URL für Apple Kalender</Label>
             <div className="flex gap-2">
               <Input value={calendarUrl} readOnly className="text-xs" />
-              <Button variant="outline" size="icon" onClick={copyCalendarUrl}>
+              <Button variant="outline" size="icon" onClick={copyCalendarUrl} title="URL in Zwischenablage kopieren">
                 {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
               </Button>
             </div>

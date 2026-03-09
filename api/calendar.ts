@@ -91,7 +91,8 @@ function scheduleWeek(contacts: Contact[], settings: Settings, weekStart: Date):
     const aDue = getDaysOverdue(a, weekStart);
     const bDue = getDaysOverdue(b, weekStart);
     if (bDue !== aDue) return bDue - aDue;
-    return a.id < b.id ? -1 : 1;
+    // Stable tiebreaker: oldest contact first
+    return new Date(a.created_at) < new Date(b.created_at) ? -1 : 1;
   });
 
   const selected = sorted.slice(0, settings.max_calls_per_week);
@@ -115,7 +116,9 @@ function scheduleWeek(contacts: Contact[], settings: Settings, weekStart: Date):
   }
 
   const result: ScheduledCall[] = [];
-  const usedDates = new Set<string>();
+  // Separate used-date sets per type: beruflich (11:00) and privat (19:00) can share the same day
+  const beruflichUsedDates = new Set<string>();
+  const privatUsedDates = new Set<string>();
 
   function pickSlot(
     slots: { date: string; time: string }[],
@@ -124,6 +127,7 @@ function scheduleWeek(contacts: Contact[], settings: Settings, weekStart: Date):
     const earliest = !contact.last_called_at
       ? new Date(new Date(contact.created_at).getTime() + 48 * 60 * 60 * 1000)
       : null;
+    const usedDates = contact.type === 'beruflich' ? beruflichUsedDates : privatUsedDates;
     return slots.find((s) => {
       if (usedDates.has(s.date)) return false;
       if (earliest) {
@@ -141,7 +145,7 @@ function scheduleWeek(contacts: Contact[], settings: Settings, weekStart: Date):
     const slot = pickSlot(pool, contact);
     if (slot) {
       result.push({ contact, ...slot });
-      usedDates.add(slot.date);
+      (contact.type === 'beruflich' ? beruflichUsedDates : privatUsedDates).add(slot.date);
     }
   }
   return result;

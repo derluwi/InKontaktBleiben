@@ -80,6 +80,7 @@ export default function WeeklyViewPage() {
             variant={isPaused ? 'default' : 'outline'}
             onClick={togglePause}
             disabled={pausing}
+            title={isPaused ? 'Pause für diese Woche aufheben' : 'Keine Anrufe diese Woche einplanen'}
           >
             {isPaused ? 'Pausiert ▶' : 'Pause ⏸'}
           </Button>
@@ -90,7 +91,7 @@ export default function WeeklyViewPage() {
         <div className="flex flex-col items-center justify-center h-48 gap-2 text-muted-foreground">
           <p className="text-2xl">⏸</p>
           <p>Diese Woche ist pausiert.</p>
-          <Button variant="outline" size="sm" onClick={togglePause}>Pause aufheben</Button>
+          <Button variant="outline" size="sm" onClick={togglePause} title="Pause für diese Woche aufheben">Pause aufheben</Button>
         </div>
       ) : schedule.length === 0 ? (
         <div className="flex flex-col items-center justify-center h-48 gap-2 text-muted-foreground px-8 text-center">
