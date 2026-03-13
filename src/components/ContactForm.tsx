@@ -58,12 +58,15 @@ export default function ContactForm({ open, onClose, onSave, initial }: Props) {
       if (!results.length) return;
       const picked = results[0];
       const name = picked.name?.[0]?.trim() ?? '';
-      const phone = picked.tel?.[0]?.trim() ?? '';
+      const rawPhone = picked.tel?.[0]?.trim() ?? '';
+      const phone = rawPhone.startsWith('0') ? '+49' + rawPhone.slice(1) : rawPhone;
       setForm((prev) => ({
         ...prev,
         ...(name && { name }),
         ...(phone && { phone }),
       }));
+      // Return focus to name field, not the next input
+      setTimeout(() => (document.getElementById('name') as HTMLInputElement)?.focus(), 100);
     } catch {
       // User cancelled — do nothing
     }
@@ -199,7 +202,7 @@ export default function ContactForm({ open, onClose, onSave, initial }: Props) {
             />
           </div>
 
-          <div className="flex gap-3 pt-2">
+          <div className="flex gap-3 pt-2 pb-8">
             <Button type="button" variant="outline" className="flex-1" onClick={onClose}>
               Abbrechen
             </Button>
