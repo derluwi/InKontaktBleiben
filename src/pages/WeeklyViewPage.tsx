@@ -50,7 +50,11 @@ export default function WeeklyViewPage() {
     } else {
       // Frozen plan exists — slot in new contacts that have no entry yet
       const plannedIds = new Set(storedPlan.map((p) => p.contact_id as string));
-      const usedDates = new Set<string>(storedPlan.map((p) => p.scheduled_date as string));
+      const usedDates = new Map<string, number>();
+      storedPlan.forEach((p) => {
+        const d = p.scheduled_date as string;
+        usedDates.set(d, (usedDates.get(d) ?? 0) + 1);
+      });
       const unplanned = (contacts as Contact[]).filter((c) => !plannedIds.has(c.id));
 
       if (unplanned.length > 0) {
@@ -59,7 +63,7 @@ export default function WeeklyViewPage() {
           const slot = findSlotForContact(contact, settingsData as Settings, weekStart, usedDates);
           if (slot) {
             additions.push({ week_start: weekKey, contact_id: contact.id, scheduled_date: slot.date, scheduled_time: slot.time });
-            usedDates.add(slot.date);
+            usedDates.set(slot.date, (usedDates.get(slot.date) ?? 0) + 1);
           }
         }
         if (additions.length > 0) {

@@ -116,7 +116,7 @@ function scheduleWeek(contacts: Contact[], settings: Settings, weekStart: Date):
   }
 
   const result: ScheduledCall[] = [];
-  const usedDates = new Set<string>();
+  const usedDates = new Map<string, number>(); // date → call count
 
   function pickSlot(
     slots: { date: string; time: string }[],
@@ -125,16 +125,23 @@ function scheduleWeek(contacts: Contact[], settings: Settings, weekStart: Date):
     const earliest = !contact.last_called_at
       ? new Date(new Date(contact.created_at).getTime() + 48 * 60 * 60 * 1000)
       : null;
-    return slots.find((s) => {
-      if (usedDates.has(s.date)) return false; // max. 1 call per day
-      if (earliest) {
-        const [h, m] = s.time.split(':').map(Number);
-        const slotTime = new Date(s.date + 'T00:00:00');
-        slotTime.setHours(h, m, 0, 0);
-        if (slotTime < earliest) return false;
-      }
-      return true;
-    });
+
+    function eligible(s: { date: string; time: string }): boolean {
+      if (!earliest) return true;
+      const [h, m] = s.time.split(':').map(Number);
+      const slotTime = new Date(s.date + 'T00:00:00');
+      slotTime.setHours(h, m, 0, 0);
+      return slotTime >= earliest;
+    }
+
+    const freeSlot = slots.find((s) => (usedDates.get(s.date) ?? 0) === 0 && eligible(s));
+    if (freeSlot) return freeSlot;
+
+    if (settings.max_calls_per_week > 7) {
+      return slots.find((s) => eligible(s));
+    }
+
+    return undefined;
   }
 
   for (const contact of selected) {
@@ -142,7 +149,7 @@ function scheduleWeek(contacts: Contact[], settings: Settings, weekStart: Date):
     const slot = pickSlot(pool, contact);
     if (slot) {
       result.push({ contact, ...slot });
-      usedDates.add(slot.date);
+      usedDates.set(slot.date, (usedDates.get(slot.date) ?? 0) + 1);
     }
   }
   return result;
