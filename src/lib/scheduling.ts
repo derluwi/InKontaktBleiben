@@ -122,17 +122,21 @@ export function scheduleWeek(
     slots: { date: string; time: string }[],
     contact: Contact,
   ): { date: string; time: string } | undefined {
-    // New contacts: enforce 48 h minimum from creation before first appointment
+    // New contacts: enforce 12 h minimum from creation before first appointment
     const earliest = !contact.last_called_at
-      ? new Date(new Date(contact.created_at).getTime() + 48 * 60 * 60 * 1000)
+      ? new Date(new Date(contact.created_at).getTime() + 12 * 60 * 60 * 1000)
       : null;
 
     function eligible(s: { date: string; time: string }): boolean {
-      if (!earliest) return true;
       const [h, m] = s.time.split(':').map(Number);
       const slotTime = new Date(s.date + 'T00:00:00');
       slotTime.setHours(h, m, 0, 0);
-      return slotTime >= earliest;
+      // New contacts: enforce 12 h minimum from creation before first appointment
+      if (earliest && slotTime < earliest) return false;
+      // Don't schedule more than 24 h before the contact's due date
+      const dueDate = getTargetDate(contact);
+      const earliestDue = new Date(dueDate.getTime() - 24 * 60 * 60 * 1000);
+      return slotTime >= earliestDue;
     }
 
     // Always prefer days that are still free
@@ -198,15 +202,19 @@ export function findSlotForContact(
 
   const pool = contact.type === 'beruflich' ? beruflichSlots : privatSlots;
   const earliest = !contact.last_called_at
-    ? new Date(new Date(contact.created_at).getTime() + 48 * 60 * 60 * 1000)
+    ? new Date(new Date(contact.created_at).getTime() + 12 * 60 * 60 * 1000)
     : null;
 
   function eligible(s: { date: string; time: string }): boolean {
-    if (!earliest) return true;
     const [h, m] = s.time.split(':').map(Number);
     const slotTime = new Date(s.date + 'T00:00:00');
     slotTime.setHours(h, m, 0, 0);
-    return slotTime >= earliest;
+    // New contacts: enforce 12 h minimum from creation before first appointment
+    if (earliest && slotTime < earliest) return false;
+    // Don't schedule more than 24 h before the contact's due date
+    const dueDate = getTargetDate(contact);
+    const earliestDue = new Date(dueDate.getTime() - 24 * 60 * 60 * 1000);
+    return slotTime >= earliestDue;
   }
 
   // Prefer free days first

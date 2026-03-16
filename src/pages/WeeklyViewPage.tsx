@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Phone } from 'lucide-react';
+import { Phone, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/lib/supabase';
@@ -84,6 +84,11 @@ export default function WeeklyViewPage() {
   }
 
   useEffect(() => { load(); }, []);
+
+  async function deleteSlot(contact: Contact) {
+    await supabase.from('weekly_plan').delete().eq('week_start', weekKey).eq('contact_id', contact.id);
+    await load();
+  }
 
   async function markCalled(contact: Contact) {
     const today = new Date().toISOString().split('T')[0];
@@ -180,6 +185,15 @@ export default function WeeklyViewPage() {
                   )}
                 </div>
 
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
+                  onClick={() => deleteSlot(contact)}
+                  title="Slot freigeben (Eintrag löschen)"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
                 <Button
                   variant="ghost"
                   size="icon"
