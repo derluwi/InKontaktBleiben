@@ -198,6 +198,16 @@ function generateIcs(calls: ScheduledCall[]): string {
       'ACTION:DISPLAY',
       `DESCRIPTION:In 10 Min: ${escapeIcs(contact.name)}`,
       'END:VALARM',
+      'BEGIN:VALARM',
+      'TRIGGER:-PT1H',
+      'ACTION:DISPLAY',
+      `DESCRIPTION:In 1 Std: ${escapeIcs(contact.name)}`,
+      'END:VALARM',
+      'BEGIN:VALARM',
+      'TRIGGER:-PT24H',
+      'ACTION:DISPLAY',
+      `DESCRIPTION:Morgen: ${escapeIcs(contact.name)}`,
+      'END:VALARM',
       'END:VEVENT',
     ].join('\r\n');
   });
