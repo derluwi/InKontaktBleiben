@@ -1,6 +1,6 @@
 export type ContactType = 'beruflich' | 'privat';
 
-export type Frequency = 'wöchentlich' | 'zweiwöchentlich' | 'monatlich' | 'quartalsweise';
+export type Frequency = 'wöchentlich' | 'zweiwöchentlich' | 'monatlich' | 'zweimonatlich' | 'halbjährlich' | 'quartalsweise';
 
 export interface Contact {
   id: string;

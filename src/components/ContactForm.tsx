@@ -165,7 +165,9 @@ export default function ContactForm({ open, onClose, onSave, initial }: Props) {
                 <SelectItem value="wöchentlich">Wöchentlich</SelectItem>
                 <SelectItem value="zweiwöchentlich">Zweiwöchentlich</SelectItem>
                 <SelectItem value="monatlich">Monatlich</SelectItem>
+                <SelectItem value="zweimonatlich">Zweimonatlich</SelectItem>
                 <SelectItem value="quartalsweise">Quartalsweise</SelectItem>
+                <SelectItem value="halbjährlich">Halbjährlich</SelectItem>
               </SelectContent>
             </Select>
           </div>

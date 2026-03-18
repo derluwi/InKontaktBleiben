@@ -4,6 +4,8 @@ const FREQUENCY_DAYS: Record<string, number> = {
   'wöchentlich': 7,
   'zweiwöchentlich': 14,
   'monatlich': 30,
+  'zweimonatlich': 60,
+  'halbjährlich': 182,
   'quartalsweise': 90,
 };
 
