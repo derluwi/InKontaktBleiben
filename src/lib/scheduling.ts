@@ -83,7 +83,10 @@ export function scheduleWeek(
     return new Date(a.created_at) < new Date(b.created_at) ? -1 : 1;
   });
 
-  const selected = sorted.slice(0, settings.max_calls_per_week);
+  // Only schedule contacts that are due by end of this week (Sunday) or already overdue
+  const weekEnd = addDays(weekStart, 6);
+  const dueThisWeek = sorted.filter((c) => getDaysOverdue(c, weekEnd) >= 0);
+  const selected = dueThisWeek.slice(0, settings.max_calls_per_week);
 
   // Helper: skip slots that are already in the past
   const now = new Date();
@@ -201,6 +204,10 @@ export function findSlotForContact(
         privatSlots.push({ date, time: settings.private_weekend_time });
     });
   }
+
+  // Only slot in contacts due by end of this week
+  const weekEnd = addDays(weekStart, 6);
+  if (getDaysOverdue(contact, weekEnd) < 0) return undefined;
 
   const pool = contact.type === 'beruflich' ? beruflichSlots : privatSlots;
   const earliest = !contact.last_called_at

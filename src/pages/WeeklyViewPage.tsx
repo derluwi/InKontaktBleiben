@@ -22,6 +22,7 @@ export default function WeeklyViewPage() {
 
   const weekStart = getWeekStart();
   const weekKey = toISODate(weekStart); // local timezone, not UTC
+  const today = toISODate(new Date());
 
   async function load() {
     const [{ data: contacts }, { data: settingsData }, { data: storedPlan }] = await Promise.all([
@@ -197,7 +198,7 @@ export default function WeeklyViewPage() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-8 w-8 shrink-0"
+                  className={`h-8 w-8 shrink-0 ${contact.last_called_at === today ? 'text-green-500 hover:text-green-500' : ''}`}
                   onClick={() => markCalled(contact)}
                   title="Als angerufen markieren"
                 >
@@ -207,6 +208,11 @@ export default function WeeklyViewPage() {
             );
           })}
         </ul>
+        {settings && settings.max_calls_per_week > schedule.length && (
+          <div className="px-4 py-3 border-t text-xs text-muted-foreground italic">
+            {settings.max_calls_per_week - schedule.length} Slot{settings.max_calls_per_week - schedule.length !== 1 ? 's' : ''} frei – niemand ist diese Woche fällig.
+          </div>
+        )}
       )}
     </div>
   );

@@ -21,6 +21,8 @@ export default function ContactsPage() {
   const [editContact, setEditContact] = useState<Contact | null>(null);
   const [deleteContact, setDeleteContact] = useState<Contact | null>(null);
 
+  const today = new Date().toISOString().split('T')[0];
+
   async function loadContacts() {
     const { data } = await supabase
       .from('contacts')
@@ -117,7 +119,7 @@ export default function ContactsPage() {
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-8 w-8"
+                    className={`h-8 w-8 ${contact.last_called_at === today ? 'text-green-500 hover:text-green-500' : ''}`}
                     onClick={() => markCalled(contact)}
                     title="Als angerufen markieren"
                   >
