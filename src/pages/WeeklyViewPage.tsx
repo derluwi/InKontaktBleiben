@@ -153,6 +153,7 @@ export default function WeeklyViewPage() {
           <p className="text-xs">Füge Kontakte hinzu oder erhöhe das Wochenlimit.</p>
         </div>
       ) : (
+        <>
         <ul className="divide-y">
           {schedule.map(({ contact, date, time }) => {
             const dateLabel = formatDate(date);
@@ -213,6 +214,7 @@ export default function WeeklyViewPage() {
             {settings.max_calls_per_week - schedule.length} Slot{settings.max_calls_per_week - schedule.length !== 1 ? 's' : ''} frei – niemand ist diese Woche fällig.
           </div>
         )}
+        </>
       )}
     </div>
   );
