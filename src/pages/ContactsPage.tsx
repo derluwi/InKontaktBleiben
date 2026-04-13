@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/dialog';
 import ContactForm from '@/components/ContactForm';
 import { supabase } from '@/lib/supabase';
-import { getDaysOverdue, getDueLabel } from '@/lib/scheduling';
+import { getDaysOverdue, getDueLabel, getWeekStart, toISODate } from '@/lib/scheduling';
 import type { Contact } from '@/types';
 
 export default function ContactsPage() {
@@ -21,7 +21,7 @@ export default function ContactsPage() {
   const [editContact, setEditContact] = useState<Contact | null>(null);
   const [deleteContact, setDeleteContact] = useState<Contact | null>(null);
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = toISODate(new Date());
 
   async function loadContacts() {
     const { data } = await supabase
@@ -52,11 +52,10 @@ export default function ContactsPage() {
   }
 
   async function markCalled(contact: Contact) {
-    const today = new Date().toISOString().split('T')[0];
-    await supabase
-      .from('contacts')
-      .update({ last_called_at: today })
-      .eq('id', contact.id);
+    const todayStr = toISODate(new Date());
+    const weekKey = toISODate(getWeekStart());
+    await supabase.from('contacts').update({ last_called_at: todayStr }).eq('id', contact.id);
+    await supabase.from('weekly_plan').delete().eq('week_start', weekKey).eq('contact_id', contact.id);
     await loadContacts();
   }
 

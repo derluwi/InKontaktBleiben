@@ -3,7 +3,7 @@ import { Phone, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/lib/supabase';
-import { scheduleWeek, getWeekStart, toISODate, findSlotForContact } from '@/lib/scheduling';
+import { scheduleWeek, getWeekStart, toISODate, findSlotForContact, getDaysOverdue } from '@/lib/scheduling';
 import type { Contact, Settings, ScheduledCall } from '@/types';
 
 const DAY_NAMES = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
@@ -56,7 +56,9 @@ export default function WeeklyViewPage() {
         const d = p.scheduled_date as string;
         usedDates.set(d, (usedDates.get(d) ?? 0) + 1);
       });
-      const unplanned = (contacts as Contact[]).filter((c) => !plannedIds.has(c.id));
+      const unplanned = (contacts as Contact[])
+        .filter((c) => !plannedIds.has(c.id))
+        .sort((a, b) => getDaysOverdue(b) - getDaysOverdue(a));
 
       if (unplanned.length > 0) {
         const additions: { week_start: string; contact_id: string; scheduled_date: string; scheduled_time: string }[] = [];
@@ -92,8 +94,9 @@ export default function WeeklyViewPage() {
   }
 
   async function markCalled(contact: Contact) {
-    const today = new Date().toISOString().split('T')[0];
-    await supabase.from('contacts').update({ last_called_at: today }).eq('id', contact.id);
+    const todayStr = toISODate(new Date());
+    await supabase.from('contacts').update({ last_called_at: todayStr }).eq('id', contact.id);
+    await supabase.from('weekly_plan').delete().eq('week_start', weekKey).eq('contact_id', contact.id);
     await load();
   }
 
