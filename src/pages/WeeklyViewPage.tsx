@@ -97,7 +97,9 @@ export default function WeeklyViewPage() {
     const todayStr = toISODate(new Date());
     const { error } = await supabase.from('contacts').update({ last_called_at: todayStr }).eq('id', contact.id);
     if (error) { alert('Fehler: ' + error.message); return; }
-    await supabase.from('weekly_plan').delete().eq('week_start', weekKey).eq('contact_id', contact.id);
+    // Delete all future slots for this contact (across all weeks), not just the current weekKey,
+    // so stale frozen slots are always cleaned up after a call.
+    await supabase.from('weekly_plan').delete().eq('contact_id', contact.id).gte('scheduled_date', todayStr);
     await load();
   }
 
