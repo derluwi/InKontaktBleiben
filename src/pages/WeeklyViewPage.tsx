@@ -95,7 +95,8 @@ export default function WeeklyViewPage() {
 
   async function markCalled(contact: Contact) {
     const todayStr = toISODate(new Date());
-    await supabase.from('contacts').update({ last_called_at: todayStr }).eq('id', contact.id);
+    const { error } = await supabase.from('contacts').update({ last_called_at: todayStr }).eq('id', contact.id);
+    if (error) { alert('Fehler: ' + error.message); return; }
     await supabase.from('weekly_plan').delete().eq('week_start', weekKey).eq('contact_id', contact.id);
     await load();
   }
@@ -191,18 +192,18 @@ export default function WeeklyViewPage() {
                 </div>
 
                 <Button
-                  variant="ghost"
+                  variant="outline"
                   size="icon"
-                  className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
+                  className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive border-destructive/30"
                   onClick={() => deleteSlot(contact)}
                   title="Slot freigeben (Eintrag löschen)"
                 >
                   <Trash2 className="h-4 w-4" />
                 </Button>
                 <Button
-                  variant="ghost"
+                  variant="outline"
                   size="icon"
-                  className={`h-8 w-8 shrink-0 ${contact.last_called_at === today ? 'text-green-500 hover:text-green-500' : ''}`}
+                  className={`h-8 w-8 shrink-0 ${contact.last_called_at === today ? 'border-green-500 text-green-500 hover:text-green-500' : ''}`}
                   onClick={() => markCalled(contact)}
                   title="Als angerufen markieren"
                 >

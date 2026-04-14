@@ -23,8 +23,12 @@ export default function SettingsPage() {
   async function handleSave() {
     if (!settings) return;
     setSaving(true);
-    await supabase.from('settings').update(settings).eq('id', 1);
+    const { error } = await supabase.from('settings').update(settings).eq('id', 1);
     setSaving(false);
+    if (error) {
+      alert('Fehler beim Speichern: ' + error.message);
+      return;
+    }
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   }

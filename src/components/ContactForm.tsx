@@ -49,6 +49,7 @@ export default function ContactForm({ open, onClose, onSave, initial }: Props) {
       : defaultForm,
   );
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const supportsContactPicker = !!navigator.contacts?.select;
 
   async function handleImportContact() {
@@ -92,17 +93,23 @@ export default function ContactForm({ open, onClose, onSave, initial }: Props) {
     e.preventDefault();
     if (!form.name.trim()) return;
     setSaving(true);
-    await onSave({
-      name: form.name.trim(),
-      type: form.type,
-      frequency: form.frequency,
-      phone: form.phone.trim() || undefined,
-      notes: form.notes.trim() || undefined,
-      last_called_at: form.last_called_at || undefined,
-    });
-    setSaving(false);
-    setForm(defaultForm);
-    onClose();
+    setSaveError(null);
+    try {
+      await onSave({
+        name: form.name.trim(),
+        type: form.type,
+        frequency: form.frequency,
+        phone: form.phone.trim() || undefined,
+        notes: form.notes.trim() || undefined,
+        last_called_at: form.last_called_at || undefined,
+      });
+      setForm(defaultForm);
+      onClose();
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Speichern fehlgeschlagen');
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -204,6 +211,9 @@ export default function ContactForm({ open, onClose, onSave, initial }: Props) {
             />
           </div>
 
+          {saveError && (
+            <p className="text-sm text-destructive">{saveError}</p>
+          )}
           <div className="flex gap-3 pt-2 pb-8">
             <Button type="button" variant="outline" className="flex-1" onClick={onClose}>
               Abbrechen

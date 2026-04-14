@@ -36,9 +36,11 @@ export default function ContactsPage() {
 
   async function handleSave(data: Omit<Contact, 'id' | 'created_at'>) {
     if (editContact) {
-      await supabase.from('contacts').update(data).eq('id', editContact.id);
+      const { error } = await supabase.from('contacts').update(data).eq('id', editContact.id);
+      if (error) throw new Error(error.message);
     } else {
-      await supabase.from('contacts').insert(data);
+      const { error } = await supabase.from('contacts').insert(data);
+      if (error) throw new Error(error.message);
     }
     setEditContact(null);
     await loadContacts();
@@ -116,16 +118,16 @@ export default function ContactsPage() {
 
                 <div className="flex items-center gap-1 shrink-0">
                   <Button
-                    variant="ghost"
+                    variant="outline"
                     size="icon"
-                    className={`h-8 w-8 ${contact.last_called_at === today ? 'text-green-500 hover:text-green-500' : ''}`}
+                    className={`h-8 w-8 ${contact.last_called_at === today ? 'border-green-500 text-green-500 hover:text-green-500' : ''}`}
                     onClick={() => markCalled(contact)}
                     title="Als angerufen markieren"
                   >
                     <Phone className="h-4 w-4" />
                   </Button>
                   <Button
-                    variant="ghost"
+                    variant="outline"
                     size="icon"
                     className="h-8 w-8"
                     onClick={() => { setEditContact(contact); setFormOpen(true); }}
@@ -134,9 +136,9 @@ export default function ContactsPage() {
                     <Pencil className="h-4 w-4" />
                   </Button>
                   <Button
-                    variant="ghost"
+                    variant="outline"
                     size="icon"
-                    className="h-8 w-8 text-destructive hover:text-destructive"
+                    className="h-8 w-8 text-destructive hover:text-destructive border-destructive/40"
                     onClick={() => setDeleteContact(contact)}
                     title="Kontakt löschen"
                   >
