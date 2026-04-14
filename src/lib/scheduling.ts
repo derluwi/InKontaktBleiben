@@ -156,7 +156,14 @@ export function scheduleWeek(
     return undefined;
   }
 
-  for (const contact of selected) {
+  // Berufliche Kontakte zuerst einplanen: sie haben nur Mo–Fr als Slots,
+  // während private Kontakte immer auf Sa/So ausweichen können.
+  const ordered = [
+    ...selected.filter(c => c.type === 'beruflich'),
+    ...selected.filter(c => c.type === 'privat'),
+  ];
+
+  for (const contact of ordered) {
     const pool = contact.type === 'beruflich' ? beruflichSlots : privatSlots;
     const slot = pickSlot(pool, contact);
     if (slot) {
