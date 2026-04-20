@@ -1,4 +1,4 @@
-import type { Contact, Settings, ScheduledCall } from '@/types';
+import type { Contact, Settings, ScheduledCall } from '../types';
 
 const FREQUENCY_DAYS: Record<string, number> = {
   'wöchentlich': 7,
