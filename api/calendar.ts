@@ -1,7 +1,39 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
-import type { Contact, Settings, ScheduledCall } from '../src/types/index';
-import { scheduleWeek } from '../src/lib/scheduling';
+
+// ─── Types (inline – no cross-directory imports in Vercel functions) ──────────
+
+type ContactType = 'beruflich' | 'privat';
+type Frequency = 'wöchentlich' | 'zweiwöchentlich' | 'monatlich' | 'zweimonatlich' | 'halbjährlich' | 'quartalsweise';
+
+interface Contact {
+  id: string;
+  name: string;
+  type: ContactType;
+  frequency: Frequency;
+  phone?: string;
+  notes?: string;
+  last_called_at?: string;
+  created_at: string;
+}
+
+interface Settings {
+  id: number;
+  max_calls_per_week: number;
+  work_call_time: string;
+  private_weekday_time: string;
+  private_weekend_time: string;
+  allow_private_weekday_evening: boolean;
+  allow_private_weekend: boolean;
+  paused_weeks: string[];
+  calendar_token: string;
+}
+
+interface ScheduledCall {
+  contact: Contact;
+  date: string;
+  time: string;
+}
 
 // ─── Berlin-aware date helpers (Vercel runs in UTC) ───────────────────────────
 
@@ -21,6 +53,130 @@ function getWeekStart(date: Date = new Date()): Date {
   return d;
 }
 
+// ─── Scheduling (kept in sync with src/lib/scheduling.ts) ────────────────────
+
+const FREQUENCY_DAYS: Record<string, number> = {
+  'wöchentlich': 7,
+  'zweiwöchentlich': 14,
+  'monatlich': 30,
+  'zweimonatlich': 60,
+  'halbjährlich': 182,
+  'quartalsweise': 90,
+};
+
+function addDays(date: Date, days: number): Date {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
+function getTargetDate(contact: Contact): Date {
+  if (!contact.last_called_at) return new Date(contact.created_at);
+  const lastCalled = new Date(contact.last_called_at);
+  return addDays(lastCalled, FREQUENCY_DAYS[contact.frequency] ?? 30);
+}
+
+function getDaysOverdue(contact: Contact, referenceDate: Date): number {
+  const target = getTargetDate(contact);
+  return Math.floor((referenceDate.getTime() - target.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+function scheduleWeek(contacts: Contact[], settings: Settings, weekStart: Date): ScheduledCall[] {
+  const weekKey = toISODate(weekStart);
+  if ((settings.paused_weeks ?? []).includes(weekKey)) return [];
+
+  const sorted = [...contacts].sort((a, b) => {
+    const aNew = !a.last_called_at;
+    const bNew = !b.last_called_at;
+    if (aNew && !bNew) return -1;
+    if (!aNew && bNew) return 1;
+    const aDue = getDaysOverdue(a, weekStart);
+    const bDue = getDaysOverdue(b, weekStart);
+    if (bDue !== aDue) return bDue - aDue;
+    return new Date(a.created_at) < new Date(b.created_at) ? -1 : 1;
+  });
+
+  const weekEnd = addDays(weekStart, 6);
+  const dueThisWeek = sorted.filter((c) => getDaysOverdue(c, weekEnd) >= 0);
+  const selected = dueThisWeek.slice(0, settings.max_calls_per_week);
+
+  const now = new Date();
+  function isFuture(date: string, time: string): boolean {
+    const [h, m] = time.split(':').map(Number);
+    const slot = new Date(date + 'T00:00:00');
+    slot.setHours(h, m, 0, 0);
+    return slot > now;
+  }
+
+  const beruflichSlots = [0, 1, 2, 3, 4]
+    .map((i) => ({ date: toISODate(addDays(weekStart, i)), time: settings.work_call_time }))
+    .filter((s) => isFuture(s.date, s.time));
+
+  const privatSlots: { date: string; time: string }[] = [];
+  if (settings.allow_private_weekday_evening) {
+    [0, 1, 2, 3, 4].forEach((i) => {
+      const date = toISODate(addDays(weekStart, i));
+      if (isFuture(date, settings.private_weekday_time))
+        privatSlots.push({ date, time: settings.private_weekday_time });
+    });
+  }
+  if (settings.allow_private_weekend) {
+    [5, 6].forEach((i) => {
+      const date = toISODate(addDays(weekStart, i));
+      if (isFuture(date, settings.private_weekend_time))
+        privatSlots.push({ date, time: settings.private_weekend_time });
+    });
+  }
+
+  const result: ScheduledCall[] = [];
+  const usedDates = new Map<string, number>();
+
+  function pickSlot(
+    slots: { date: string; time: string }[],
+    contact: Contact,
+  ): { date: string; time: string } | undefined {
+    const earliest = !contact.last_called_at
+      ? new Date(new Date(contact.created_at).getTime() + 12 * 60 * 60 * 1000)
+      : null;
+
+    function eligible(s: { date: string; time: string }): boolean {
+      const [h, m] = s.time.split(':').map(Number);
+      const slotTime = new Date(s.date + 'T00:00:00');
+      slotTime.setHours(h, m, 0, 0);
+      if (earliest && slotTime < earliest) return false;
+      const dueDate = getTargetDate(contact);
+      const earliestDue = new Date(dueDate.getTime() - 24 * 60 * 60 * 1000);
+      return slotTime >= earliestDue;
+    }
+
+    const freeSlot = slots.find((s) => (usedDates.get(s.date) ?? 0) === 0 && eligible(s));
+    if (freeSlot) return freeSlot;
+
+    if (settings.max_calls_per_week > 7) {
+      return slots.find((s) => eligible(s));
+    }
+
+    return undefined;
+  }
+
+  // Berufliche Kontakte zuerst: sie haben nur Mo–Fr, private können auf Sa/So ausweichen
+  const ordered = [
+    ...selected.filter((c) => c.type === 'beruflich'),
+    ...selected.filter((c) => c.type === 'privat'),
+  ];
+
+  for (const contact of ordered) {
+    const pool = contact.type === 'beruflich' ? beruflichSlots : privatSlots;
+    const slot = pickSlot(pool, contact);
+    if (slot) {
+      result.push({ contact, ...slot });
+      usedDates.set(slot.date, (usedDates.get(slot.date) ?? 0) + 1);
+    }
+  }
+
+  return result;
+}
+
 // ─── ICS Generation ───────────────────────────────────────────────────────────
 
 function escapeIcs(str: string): string {
@@ -37,7 +193,6 @@ function toIcsDateTime(date: string, time: string): string {
 function generateIcs(calls: ScheduledCall[]): string {
   const events = calls.map(({ contact, date, time }) => {
     const dtStart = toIcsDateTime(date, time);
-    // 30-minute slot
     const [h, m] = time.split(':').map(Number);
     const endMinutes = m + 30;
     const endHour = h + Math.floor(endMinutes / 60);
@@ -113,7 +268,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const weekStart = getWeekStart();
   const weekKey = toISODate(weekStart);
 
-  if (settings.paused_weeks?.includes(weekKey)) {
+  if ((settings.paused_weeks ?? []).includes(weekKey)) {
     res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="kontakte.ics"');
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
@@ -130,8 +285,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     .eq('week_start', weekKey);
 
   if (storedPlan && storedPlan.length > 0) {
-    calls = (storedPlan as unknown as Array<{ scheduled_date: string; scheduled_time: string; contacts: Contact }>)
-      .map((p) => ({ contact: p.contacts, date: p.scheduled_date, time: p.scheduled_time }))
+    calls = (storedPlan as unknown as Array<{ scheduled_date: string; scheduled_time: string; contacts: Contact | null }>)
+      .filter((p) => p.contacts != null)
+      .map((p) => ({ contact: p.contacts!, date: p.scheduled_date, time: p.scheduled_time }))
       .sort((a, b) => a.date.localeCompare(b.date));
   } else {
     // Fall back to live computation (e.g. ICS fetched before app was opened this week)
