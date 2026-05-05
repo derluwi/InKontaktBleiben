@@ -23,7 +23,14 @@ export default function SettingsPage() {
   async function handleSave() {
     if (!settings) return;
     setSaving(true);
-    const { error } = await supabase.from('settings').update(settings).eq('id', 1);
+    const { error } = await supabase.from('settings').update({
+      max_calls_per_week: settings.max_calls_per_week,
+      work_call_time: settings.work_call_time,
+      private_weekday_time: settings.private_weekday_time,
+      private_weekend_time: settings.private_weekend_time,
+      allow_private_weekday_evening: settings.allow_private_weekday_evening,
+      allow_private_weekend: settings.allow_private_weekend,
+    }).eq('id', 1);
     setSaving(false);
     if (error) {
       alert('Fehler beim Speichern: ' + error.message);

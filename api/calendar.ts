@@ -1,32 +1,17 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 
-// ─── Types (inline – no cross-directory imports in Vercel functions) ──────────
-
-type ContactType = 'beruflich' | 'privat';
-type Frequency = 'wöchentlich' | 'zweiwöchentlich' | 'monatlich' | 'zweimonatlich' | 'halbjährlich' | 'quartalsweise';
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 interface Contact {
   id: string;
   name: string;
-  type: ContactType;
-  frequency: Frequency;
   phone?: string;
-  notes?: string;
-  last_called_at?: string;
-  created_at: string;
 }
 
-interface Settings {
-  id: number;
-  max_calls_per_week: number;
-  work_call_time: string;
-  private_weekday_time: string;
-  private_weekend_time: string;
-  allow_private_weekday_evening: boolean;
-  allow_private_weekend: boolean;
-  paused_weeks: string[];
+interface StoredSettings {
   calendar_token: string;
+  paused_weeks?: string[];
 }
 
 interface ScheduledCall {
@@ -53,142 +38,64 @@ function getWeekStart(date: Date = new Date()): Date {
   return d;
 }
 
-// ─── Scheduling (kept in sync with src/lib/scheduling.ts) ────────────────────
-
-const FREQUENCY_DAYS: Record<string, number> = {
-  'wöchentlich': 7,
-  'zweiwöchentlich': 14,
-  'monatlich': 30,
-  'zweimonatlich': 60,
-  'halbjährlich': 182,
-  'quartalsweise': 90,
-};
-
-function addDays(date: Date, days: number): Date {
-  const d = new Date(date);
-  d.setDate(d.getDate() + days);
-  return d;
-}
-
-function getTargetDate(contact: Contact): Date {
-  if (!contact.last_called_at) return new Date(contact.created_at);
-  const lastCalled = new Date(contact.last_called_at);
-  return addDays(lastCalled, FREQUENCY_DAYS[contact.frequency] ?? 30);
-}
-
-function getDaysOverdue(contact: Contact, referenceDate: Date): number {
-  const target = getTargetDate(contact);
-  return Math.floor((referenceDate.getTime() - target.getTime()) / (1000 * 60 * 60 * 24));
-}
-
-function scheduleWeek(contacts: Contact[], settings: Settings, weekStart: Date): ScheduledCall[] {
-  const weekKey = toISODate(weekStart);
-  if ((settings.paused_weeks ?? []).includes(weekKey)) return [];
-
-  const sorted = [...contacts].sort((a, b) => {
-    const aNew = !a.last_called_at;
-    const bNew = !b.last_called_at;
-    if (aNew && !bNew) return -1;
-    if (!aNew && bNew) return 1;
-    const aDue = getDaysOverdue(a, weekStart);
-    const bDue = getDaysOverdue(b, weekStart);
-    if (bDue !== aDue) return bDue - aDue;
-    return new Date(a.created_at) < new Date(b.created_at) ? -1 : 1;
-  });
-
-  const weekEnd = addDays(weekStart, 6);
-  const dueThisWeek = sorted.filter((c) => getDaysOverdue(c, weekEnd) >= 0);
-  const selected = dueThisWeek.slice(0, settings.max_calls_per_week);
-
-  const now = new Date();
-  function isFuture(date: string, time: string): boolean {
-    const [h, m] = time.split(':').map(Number);
-    const slot = new Date(date + 'T00:00:00');
-    slot.setHours(h, m, 0, 0);
-    return slot > now;
-  }
-
-  const beruflichSlots = [0, 1, 2, 3, 4]
-    .map((i) => ({ date: toISODate(addDays(weekStart, i)), time: settings.work_call_time }))
-    .filter((s) => isFuture(s.date, s.time));
-
-  const privatSlots: { date: string; time: string }[] = [];
-  if (settings.allow_private_weekday_evening) {
-    [0, 1, 2, 3, 4].forEach((i) => {
-      const date = toISODate(addDays(weekStart, i));
-      if (isFuture(date, settings.private_weekday_time))
-        privatSlots.push({ date, time: settings.private_weekday_time });
-    });
-  }
-  if (settings.allow_private_weekend) {
-    [5, 6].forEach((i) => {
-      const date = toISODate(addDays(weekStart, i));
-      if (isFuture(date, settings.private_weekend_time))
-        privatSlots.push({ date, time: settings.private_weekend_time });
-    });
-  }
-
-  const result: ScheduledCall[] = [];
-  const usedDates = new Map<string, number>();
-
-  function pickSlot(
-    slots: { date: string; time: string }[],
-    contact: Contact,
-  ): { date: string; time: string } | undefined {
-    const earliest = !contact.last_called_at
-      ? new Date(new Date(contact.created_at).getTime() + 12 * 60 * 60 * 1000)
-      : null;
-
-    function eligible(s: { date: string; time: string }): boolean {
-      const [h, m] = s.time.split(':').map(Number);
-      const slotTime = new Date(s.date + 'T00:00:00');
-      slotTime.setHours(h, m, 0, 0);
-      if (earliest && slotTime < earliest) return false;
-      const dueDate = getTargetDate(contact);
-      const earliestDue = new Date(dueDate.getTime() - 24 * 60 * 60 * 1000);
-      return slotTime >= earliestDue;
-    }
-
-    const freeSlot = slots.find((s) => (usedDates.get(s.date) ?? 0) === 0 && eligible(s));
-    if (freeSlot) return freeSlot;
-
-    if (settings.max_calls_per_week > 7) {
-      return slots.find((s) => eligible(s));
-    }
-
-    return undefined;
-  }
-
-  // Berufliche Kontakte zuerst: sie haben nur Mo–Fr, private können auf Sa/So ausweichen
-  const ordered = [
-    ...selected.filter((c) => c.type === 'beruflich'),
-    ...selected.filter((c) => c.type === 'privat'),
-  ];
-
-  for (const contact of ordered) {
-    const pool = contact.type === 'beruflich' ? beruflichSlots : privatSlots;
-    const slot = pickSlot(pool, contact);
-    if (slot) {
-      result.push({ contact, ...slot });
-      usedDates.set(slot.date, (usedDates.get(slot.date) ?? 0) + 1);
-    }
-  }
-
-  return result;
-}
-
 // ─── ICS Generation ───────────────────────────────────────────────────────────
 
 function escapeIcs(str: string): string {
   return str.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
 }
 
-/** Convert YYYY-MM-DD + HH:MM to ICS date-time string (local Berlin time, no UTC conversion) */
+/** RFC 5545 §3.1: fold lines exceeding 75 octets */
+function foldLine(line: string): string {
+  const MAX = 75;
+  if (line.length <= MAX) return line; // fast path: ASCII-only lines
+  const encoder = new TextEncoder();
+  const encoded = encoder.encode(line);
+  if (encoded.length <= MAX) return line;
+
+  const parts: string[] = [];
+  let offset = 0;
+  let isFirst = true;
+  const decoder = new TextDecoder();
+
+  while (offset < encoded.length) {
+    const available = isFirst ? MAX : MAX - 1; // continuation line has 1-byte leading space
+    let end = Math.min(offset + available, encoded.length);
+    // Walk back to avoid splitting a multi-byte UTF-8 sequence
+    while (end < encoded.length && (encoded[end] & 0xC0) === 0x80) end--;
+    parts.push(decoder.decode(encoded.subarray(offset, end)));
+    offset = end;
+    isFirst = false;
+  }
+
+  return parts.join('\r\n ');
+}
+
+/** Convert YYYY-MM-DD + HH:MM to ICS date-time string (Europe/Berlin local time) */
 function toIcsDateTime(date: string, time: string): string {
   const [year, month, day] = date.split('-');
   const [hour, minute] = time.split(':');
   return `${year}${month}${day}T${hour}${minute}00`;
 }
+
+const VTIMEZONE_BERLIN = [
+  'BEGIN:VTIMEZONE',
+  'TZID:Europe/Berlin',
+  'BEGIN:STANDARD',
+  'DTSTART:19701025T030000',
+  'RRULE:FREQ=YEARLY;BYDAY=-1SU;BYMONTH=10',
+  'TZOFFSETFROM:+0200',
+  'TZOFFSETTO:+0100',
+  'TZNAME:CET',
+  'END:STANDARD',
+  'BEGIN:DAYLIGHT',
+  'DTSTART:19700329T020000',
+  'RRULE:FREQ=YEARLY;BYDAY=-1SU;BYMONTH=3',
+  'TZOFFSETFROM:+0100',
+  'TZOFFSETTO:+0200',
+  'TZNAME:CEST',
+  'END:DAYLIGHT',
+  'END:VTIMEZONE',
+].join('\r\n');
 
 function generateIcs(calls: ScheduledCall[]): string {
   const events = calls.map(({ contact, date, time }) => {
@@ -199,34 +106,30 @@ function generateIcs(calls: ScheduledCall[]): string {
     const endMin = endMinutes % 60;
     const endTime = `${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}`;
     const dtEnd = toIcsDateTime(date, endTime);
-
     const uid = `${contact.id}-${date}@inkontaktbleiben`;
-    const summary = `Anruf: ${escapeIcs(contact.name)}`;
-    const description = contact.phone
-      ? `tel:${escapeIcs(contact.phone)}`
-      : escapeIcs(contact.name);
+    const name = escapeIcs(contact.name);
 
     return [
       'BEGIN:VEVENT',
-      `UID:${uid}`,
+      foldLine(`UID:${uid}`),
       `DTSTART;TZID=Europe/Berlin:${dtStart}`,
       `DTEND;TZID=Europe/Berlin:${dtEnd}`,
-      `SUMMARY:${summary}`,
-      `DESCRIPTION:${description}`,
+      foldLine(`SUMMARY:Anruf: ${name}`),
+      foldLine(`DESCRIPTION:${contact.phone ? `tel:${escapeIcs(contact.phone)}` : name}`),
       'BEGIN:VALARM',
       'TRIGGER:-PT10M',
       'ACTION:DISPLAY',
-      `DESCRIPTION:In 10 Min: ${escapeIcs(contact.name)}`,
+      foldLine(`DESCRIPTION:In 10 Min: ${name}`),
       'END:VALARM',
       'BEGIN:VALARM',
       'TRIGGER:-PT1H',
       'ACTION:DISPLAY',
-      `DESCRIPTION:In 1 Std: ${escapeIcs(contact.name)}`,
+      foldLine(`DESCRIPTION:In 1 Std: ${name}`),
       'END:VALARM',
       'BEGIN:VALARM',
       'TRIGGER:-PT24H',
       'ACTION:DISPLAY',
-      `DESCRIPTION:Morgen: ${escapeIcs(contact.name)}`,
+      foldLine(`DESCRIPTION:Morgen: ${name}`),
       'END:VALARM',
       'END:VEVENT',
     ].join('\r\n');
@@ -239,6 +142,7 @@ function generateIcs(calls: ScheduledCall[]): string {
     'CALSCALE:GREGORIAN',
     'X-WR-CALNAME:Kontakt-Anrufe',
     'X-WR-TIMEZONE:Europe/Berlin',
+    VTIMEZONE_BERLIN,
     ...events,
     'END:VCALENDAR',
   ].join('\r\n');
@@ -256,9 +160,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const { data: settings } = await supabase
     .from('settings')
-    .select('*')
+    .select('calendar_token, paused_weeks')
     .eq('id', 1)
-    .single();
+    .single<StoredSettings>();
 
   if (!settings || settings.calendar_token !== token) {
     res.status(401).send('Unauthorized');
@@ -276,28 +180,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  let calls: ScheduledCall[];
-
-  // Prefer the frozen weekly plan stored by the frontend
   const { data: storedPlan } = await supabase
     .from('weekly_plan')
-    .select('scheduled_date, scheduled_time, contacts(*)')
+    .select('scheduled_date, scheduled_time, contacts(id, name, phone)')
     .eq('week_start', weekKey);
 
-  if (storedPlan && storedPlan.length > 0) {
-    calls = (storedPlan as unknown as Array<{ scheduled_date: string; scheduled_time: string; contacts: Contact | null }>)
-      .filter((p) => p.contacts != null)
-      .map((p) => ({ contact: p.contacts!, date: p.scheduled_date, time: p.scheduled_time }))
-      .sort((a, b) => a.date.localeCompare(b.date));
-  } else {
-    // Fall back to live computation (e.g. ICS fetched before app was opened this week)
-    const { data: contacts } = await supabase.from('contacts').select('*');
-    if (!contacts) {
-      res.status(500).send('Error loading contacts');
-      return;
-    }
-    calls = scheduleWeek(contacts as Contact[], settings as Settings, weekStart);
-  }
+  const calls: ScheduledCall[] = storedPlan
+    ? (storedPlan as unknown as Array<{
+        scheduled_date: string;
+        scheduled_time: string;
+        contacts: Contact | null;
+      }>)
+        .filter((p) => p.contacts != null)
+        .map((p) => ({ contact: p.contacts!, date: p.scheduled_date, time: p.scheduled_time }))
+        .sort((a, b) => a.date.localeCompare(b.date))
+    : [];
 
   const ics = generateIcs(calls);
 

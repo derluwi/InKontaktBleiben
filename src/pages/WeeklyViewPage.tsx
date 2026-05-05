@@ -19,26 +19,36 @@ export default function WeeklyViewPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(true);
   const [pausing, setPausing] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const weekStart = getWeekStart();
   const weekKey = toISODate(weekStart); // local timezone, not UTC
   const today = toISODate(new Date());
 
   async function load() {
-    const [{ data: contacts }, { data: settingsData }, { data: storedPlan }] = await Promise.all([
+    const [
+      { data: contacts, error: contactsError },
+      { data: settingsData, error: settingsError },
+      { data: storedPlan },
+    ] = await Promise.all([
       supabase.from('contacts').select('*'),
       supabase.from('settings').select('*').eq('id', 1).single(),
       supabase.from('weekly_plan').select('*').eq('week_start', weekKey),
     ]);
 
-    if (!contacts || !settingsData) { setLoading(false); return; }
+    if (contactsError || settingsError || !contacts || !settingsData) {
+      setLoadError('Daten konnten nicht geladen werden. Bitte Seite neu laden.');
+      setLoading(false);
+      return;
+    }
+    setLoadError(null);
     setSettings(settingsData as Settings);
 
     if (!storedPlan || storedPlan.length === 0) {
       // No frozen plan yet for this week — compute and store it
       const plan = scheduleWeek(contacts as Contact[], settingsData as Settings, weekStart);
       if (plan.length > 0) {
-        await supabase.from('weekly_plan').insert(
+        const { error: insertError } = await supabase.from('weekly_plan').insert(
           plan.map(({ contact, date, time }) => ({
             week_start: weekKey,
             contact_id: contact.id,
@@ -46,6 +56,7 @@ export default function WeeklyViewPage() {
             scheduled_time: time,
           })),
         );
+        if (insertError) console.error('weekly_plan insert failed:', insertError.message);
       }
       setSchedule(plan);
     } else {
@@ -70,7 +81,8 @@ export default function WeeklyViewPage() {
           }
         }
         if (additions.length > 0) {
-          await supabase.from('weekly_plan').insert(additions);
+          const { error: insertError } = await supabase.from('weekly_plan').insert(additions);
+          if (insertError) console.error('weekly_plan insert failed:', insertError.message);
           storedPlan.push(...additions);
         }
       }
@@ -86,6 +98,7 @@ export default function WeeklyViewPage() {
     setLoading(false);
   }
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
   useEffect(() => { load(); }, []);
 
   async function deleteSlot(contact: Contact) {
@@ -124,6 +137,10 @@ export default function WeeklyViewPage() {
 
   if (loading) {
     return <div className="flex items-center justify-center h-64 text-muted-foreground">Lädt…</div>;
+  }
+
+  if (loadError) {
+    return <div className="flex items-center justify-center h-64 text-destructive px-4 text-center text-sm">{loadError}</div>;
   }
 
   return (

@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/dialog';
 import ContactForm from '@/components/ContactForm';
 import { supabase } from '@/lib/supabase';
-import { getDaysOverdue, getDueLabel, getWeekStart, toISODate } from '@/lib/scheduling';
+import { getDaysOverdue, getDueLabel, toISODate } from '@/lib/scheduling';
 import type { Contact } from '@/types';
 
 export default function ContactsPage() {
@@ -20,18 +20,25 @@ export default function ContactsPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [editContact, setEditContact] = useState<Contact | null>(null);
   const [deleteContact, setDeleteContact] = useState<Contact | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const today = toISODate(new Date());
 
   async function loadContacts() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('contacts')
       .select('*')
       .order('name');
-    if (data) setContacts(data);
+    if (error) {
+      setLoadError('Kontakte konnten nicht geladen werden: ' + error.message);
+    } else {
+      setContacts(data ?? []);
+      setLoadError(null);
+    }
     setLoading(false);
   }
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { loadContacts(); }, []);
 
   async function handleSave(data: Omit<Contact, 'id' | 'created_at'>) {
@@ -48,16 +55,17 @@ export default function ContactsPage() {
 
   async function handleDelete() {
     if (!deleteContact) return;
-    await supabase.from('contacts').delete().eq('id', deleteContact.id);
+    const { error } = await supabase.from('contacts').delete().eq('id', deleteContact.id);
+    if (error) { alert('Fehler beim Löschen: ' + error.message); return; }
     setDeleteContact(null);
     await loadContacts();
   }
 
   async function markCalled(contact: Contact) {
     const todayStr = toISODate(new Date());
-    const weekKey = toISODate(getWeekStart());
-    await supabase.from('contacts').update({ last_called_at: todayStr }).eq('id', contact.id);
-    await supabase.from('weekly_plan').delete().eq('week_start', weekKey).eq('contact_id', contact.id);
+    const { error } = await supabase.from('contacts').update({ last_called_at: todayStr }).eq('id', contact.id);
+    if (error) { alert('Fehler: ' + error.message); return; }
+    await supabase.from('weekly_plan').delete().eq('contact_id', contact.id).gte('scheduled_date', todayStr);
     await loadContacts();
   }
 
@@ -67,6 +75,10 @@ export default function ContactsPage() {
 
   if (loading) {
     return <div className="flex items-center justify-center h-64 text-muted-foreground">Lädt…</div>;
+  }
+
+  if (loadError) {
+    return <div className="flex items-center justify-center h-64 text-destructive px-4 text-center text-sm">{loadError}</div>;
   }
 
   return (
