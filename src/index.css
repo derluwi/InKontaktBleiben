@@ -128,3 +128,16 @@
     overscroll-behavior-x: none;
     }
 }
+
+/* One-shot ring that expands outward from a button */
+@keyframes ping-once {
+  0%   { transform: scale(1);   opacity: 0.55; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+
+/* Brief bounce for tab navigation items */
+@keyframes nav-tap {
+  0%   { transform: scale(1);    opacity: 1; }
+  35%  { transform: scale(0.84); opacity: 0.55; }
+  100% { transform: scale(1);    opacity: 1; }
+}

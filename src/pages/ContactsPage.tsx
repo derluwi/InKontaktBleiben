@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Phone, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Phone, Check, Pencil, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -21,6 +21,10 @@ export default function ContactsPage() {
   const [editContact, setEditContact] = useState<Contact | null>(null);
   const [deleteContact, setDeleteContact] = useState<Contact | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [callingId, setCallingId] = useState<string | null>(null);
+  const [editPressId, setEditPressId] = useState<string | null>(null);
+  const [deletePressId, setDeletePressId] = useState<string | null>(null);
+  const [exitingId, setExitingId] = useState<string | null>(null);
 
   const today = toISODate(new Date());
 
@@ -55,18 +59,38 @@ export default function ContactsPage() {
 
   async function handleDelete() {
     if (!deleteContact) return;
-    const { error } = await supabase.from('contacts').delete().eq('id', deleteContact.id);
-    if (error) { alert('Fehler beim Löschen: ' + error.message); return; }
+    const target = deleteContact;
     setDeleteContact(null);
-    await loadContacts();
+    setExitingId(target.id);
+    const { error } = await supabase.from('contacts').delete().eq('id', target.id);
+    if (error) { alert('Fehler beim Löschen: ' + error.message); setExitingId(null); return; }
+    setTimeout(() => { setExitingId(null); loadContacts(); }, 360);
   }
 
   async function markCalled(contact: Contact) {
+    setCallingId(contact.id);
     const todayStr = toISODate(new Date());
     const { error } = await supabase.from('contacts').update({ last_called_at: todayStr }).eq('id', contact.id);
-    if (error) { alert('Fehler: ' + error.message); return; }
+    if (error) { alert('Fehler: ' + error.message); setCallingId(null); return; }
     await supabase.from('weekly_plan').delete().eq('contact_id', contact.id).gte('scheduled_date', todayStr);
-    await loadContacts();
+    setTimeout(() => { setCallingId(null); loadContacts(); }, 700);
+  }
+
+  function handleEditPress(contact: Contact) {
+    setEditPressId(contact.id);
+    setTimeout(() => {
+      setEditPressId(null);
+      setEditContact(contact);
+      setFormOpen(true);
+    }, 130);
+  }
+
+  function handleDeletePress(contact: Contact) {
+    setDeletePressId(contact.id);
+    setTimeout(() => {
+      setDeletePressId(null);
+      setDeleteContact(contact);
+    }, 130);
   }
 
   const sortedContacts = [...contacts].sort((a, b) => {
@@ -108,8 +132,18 @@ export default function ContactsPage() {
             const dueLabel = getDueLabel(contact);
             const isOverdue = overdue > 0;
 
+            const isCalling = callingId === contact.id;
+            const isExiting = exitingId === contact.id;
+
             return (
-              <li key={contact.id} className="px-4 py-3 flex items-center gap-3">
+              <li
+                key={contact.id}
+                className={`px-4 py-3 flex items-center gap-3 transition-all duration-300 ${
+                  isCalling ? 'bg-green-50 dark:bg-green-950/20' : ''
+                } ${
+                  isExiting ? 'opacity-0 -translate-x-1' : ''
+                }`}
+              >
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-medium truncate">{contact.name}</span>
@@ -132,17 +166,33 @@ export default function ContactsPage() {
                   <Button
                     variant="outline"
                     size="icon"
-                    className={`h-8 w-8 ${contact.last_called_at === today ? 'border-green-500 text-green-500 hover:text-green-500' : ''}`}
+                    className={`relative overflow-visible h-8 w-8 transition-colors ${
+                      isCalling
+                        ? 'border-green-500 bg-green-50 text-green-600 hover:text-green-600 dark:bg-green-950/30'
+                        : contact.last_called_at === today
+                          ? 'border-green-500 text-green-500 hover:text-green-500'
+                          : ''
+                    }`}
                     onClick={() => markCalled(contact)}
+                    disabled={isCalling}
                     title="Als angerufen markieren"
                   >
-                    <Phone className="h-4 w-4" />
+                    {isCalling && (
+                      <span
+                        className="absolute inset-0 rounded-md bg-green-400/40 pointer-events-none"
+                        style={{ animation: 'ping-once 0.42s ease-out forwards' }}
+                      />
+                    )}
+                    {isCalling ? <Check className="h-4 w-4" /> : <Phone className="h-4 w-4" />}
                   </Button>
                   <Button
                     variant="outline"
                     size="icon"
-                    className="h-8 w-8"
-                    onClick={() => { setEditContact(contact); setFormOpen(true); }}
+                    className={`h-8 w-8 transition-all duration-100 ${
+                      editPressId === contact.id ? 'scale-90 opacity-60' : ''
+                    }`}
+                    onClick={() => handleEditPress(contact)}
+                    disabled={editPressId === contact.id}
                     title="Kontakt bearbeiten"
                   >
                     <Pencil className="h-4 w-4" />
@@ -150,10 +200,19 @@ export default function ContactsPage() {
                   <Button
                     variant="outline"
                     size="icon"
-                    className="h-8 w-8 text-destructive hover:text-destructive border-destructive/40"
-                    onClick={() => setDeleteContact(contact)}
+                    className={`relative overflow-visible h-8 w-8 text-destructive hover:text-destructive border-destructive/40 transition-all duration-100 ${
+                      deletePressId === contact.id ? 'scale-90 opacity-60 bg-destructive/10' : ''
+                    }`}
+                    onClick={() => handleDeletePress(contact)}
+                    disabled={deletePressId === contact.id}
                     title="Kontakt löschen"
                   >
+                    {deletePressId === contact.id && (
+                      <span
+                        className="absolute inset-0 rounded-md bg-destructive/30 pointer-events-none"
+                        style={{ animation: 'ping-once 0.38s ease-out forwards' }}
+                      />
+                    )}
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>

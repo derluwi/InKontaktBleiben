@@ -13,6 +13,7 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [savePulsing, setSavePulsing] = useState(false);
 
   useEffect(() => {
     supabase.from('settings').select('*').eq('id', 1).single().then(({ data }) => {
@@ -23,6 +24,8 @@ export default function SettingsPage() {
   async function handleSave() {
     if (!settings) return;
     setSaving(true);
+    setSavePulsing(true);
+    setTimeout(() => setSavePulsing(false), 480);
     const { error } = await supabase.from('settings').update({
       max_calls_per_week: settings.max_calls_per_week,
       work_call_time: settings.work_call_time,
@@ -62,7 +65,13 @@ export default function SettingsPage() {
       {/* Header */}
       <div className="sticky top-0 bg-background/95 backdrop-blur-sm border-b px-4 py-3 flex items-center justify-between z-10">
         <h1 className="text-lg font-semibold">Einstellungen</h1>
-        <Button size="sm" onClick={handleSave} disabled={saving} title="Einstellungen speichern">
+        <Button size="sm" onClick={handleSave} disabled={saving} title="Einstellungen speichern" className="relative overflow-visible">
+          {savePulsing && (
+            <span
+              className="absolute inset-0 rounded-md bg-green-400/40 pointer-events-none"
+              style={{ animation: 'ping-once 0.45s ease-out forwards' }}
+            />
+          )}
           {saved ? <><Check className="h-4 w-4 mr-1" /> Gespeichert</> : saving ? 'Speichern…' : 'Speichern'}
         </Button>
       </div>

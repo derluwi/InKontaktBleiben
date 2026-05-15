@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Phone, Trash2 } from 'lucide-react';
+import { Phone, Check, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/lib/supabase';
@@ -20,6 +20,9 @@ export default function WeeklyViewPage() {
   const [loading, setLoading] = useState(true);
   const [pausing, setPausing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [callingId, setCallingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [exitingId, setExitingId] = useState<string | null>(null);
 
   const weekStart = getWeekStart();
   const weekKey = toISODate(weekStart); // local timezone, not UTC
@@ -102,18 +105,22 @@ export default function WeeklyViewPage() {
   useEffect(() => { load(); }, []);
 
   async function deleteSlot(contact: Contact) {
+    setDeletingId(contact.id);
     await supabase.from('weekly_plan').delete().eq('week_start', weekKey).eq('contact_id', contact.id);
-    await load();
+    setTimeout(() => setExitingId(contact.id), 320);
+    setTimeout(() => { setDeletingId(null); setExitingId(null); load(); }, 680);
   }
 
   async function markCalled(contact: Contact) {
+    setCallingId(contact.id);
     const todayStr = toISODate(new Date());
     const { error } = await supabase.from('contacts').update({ last_called_at: todayStr }).eq('id', contact.id);
-    if (error) { alert('Fehler: ' + error.message); return; }
+    if (error) { alert('Fehler: ' + error.message); setCallingId(null); return; }
     // Delete all future slots for this contact (across all weeks), not just the current weekKey,
     // so stale frozen slots are always cleaned up after a call.
     await supabase.from('weekly_plan').delete().eq('contact_id', contact.id).gte('scheduled_date', todayStr);
-    await load();
+    setTimeout(() => setExitingId(contact.id), 380);
+    setTimeout(() => { setCallingId(null); setExitingId(null); load(); }, 730);
   }
 
   async function togglePause() {
@@ -182,8 +189,23 @@ export default function WeeklyViewPage() {
             const dateLabel = formatDate(date);
             const isToday = date === toISODate(new Date());
 
+            const isCalling = callingId === contact.id;
+            const isDeleting = deletingId === contact.id;
+            const isExiting = exitingId === contact.id;
+
             return (
-              <li key={contact.id} className={`px-4 py-3 flex items-center gap-3 ${isToday ? 'bg-accent/40' : ''}`}>
+              <li
+                key={contact.id}
+                className={`px-4 py-3 flex items-center gap-3 transition-all duration-300 ${
+                  isToday && !isCalling && !isDeleting ? 'bg-accent/40' : ''
+                } ${
+                  isCalling ? 'bg-green-50 dark:bg-green-950/20' : ''
+                } ${
+                  isDeleting ? 'bg-red-50 dark:bg-red-950/20' : ''
+                } ${
+                  isExiting ? 'opacity-0 -translate-x-1' : ''
+                }`}
+              >
                 <div className="text-center shrink-0 w-12">
                   <div className="text-xs text-muted-foreground">
                     {DAY_NAMES[new Date(date + 'T00:00:00').getDay() === 0 ? 6 : new Date(date + 'T00:00:00').getDay() - 1]}
@@ -213,20 +235,44 @@ export default function WeeklyViewPage() {
                 <Button
                   variant="outline"
                   size="icon"
-                  className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive border-destructive/30"
+                  className={`relative overflow-visible h-8 w-8 shrink-0 transition-colors ${
+                    isDeleting
+                      ? 'border-destructive/60 bg-red-50 text-destructive dark:bg-red-950/30'
+                      : 'text-muted-foreground hover:text-destructive border-destructive/30'
+                  }`}
                   onClick={() => deleteSlot(contact)}
+                  disabled={isDeleting || isCalling}
                   title="Slot freigeben (Eintrag löschen)"
                 >
+                  {isDeleting && (
+                    <span
+                      className="absolute inset-0 rounded-md bg-destructive/30 pointer-events-none"
+                      style={{ animation: 'ping-once 0.4s ease-out forwards' }}
+                    />
+                  )}
                   <Trash2 className="h-4 w-4" />
                 </Button>
                 <Button
                   variant="outline"
                   size="icon"
-                  className={`h-8 w-8 shrink-0 ${contact.last_called_at === today ? 'border-green-500 text-green-500 hover:text-green-500' : ''}`}
+                  className={`relative overflow-visible h-8 w-8 shrink-0 transition-colors ${
+                    isCalling
+                      ? 'border-green-500 bg-green-50 text-green-600 hover:text-green-600 dark:bg-green-950/30'
+                      : contact.last_called_at === today
+                        ? 'border-green-500 text-green-500 hover:text-green-500'
+                        : ''
+                  }`}
                   onClick={() => markCalled(contact)}
+                  disabled={isCalling || isDeleting}
                   title="Als angerufen markieren"
                 >
-                  <Phone className="h-4 w-4" />
+                  {isCalling && (
+                    <span
+                      className="absolute inset-0 rounded-md bg-green-400/40 pointer-events-none"
+                      style={{ animation: 'ping-once 0.42s ease-out forwards' }}
+                    />
+                  )}
+                  {isCalling ? <Check className="h-4 w-4" /> : <Phone className="h-4 w-4" />}
                 </Button>
               </li>
             );
