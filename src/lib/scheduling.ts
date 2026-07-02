@@ -244,3 +244,70 @@ export function findSlotForContact(
 
   return undefined;
 }
+
+/** A row ready to be inserted into the `weekly_plan` table. */
+export interface PlanRow {
+  week_start: string;
+  contact_id: string;
+  scheduled_date: string;
+  scheduled_time: string;
+}
+
+/**
+ * Compute the `weekly_plan` rows that still need to be inserted for the given week.
+ *
+ * This is the single source of truth for "freezing" a week. It handles both cases,
+ * mirroring the behaviour that opening the app has always had:
+ *  - **No stored plan yet** → freeze the full week via {@link scheduleWeek}.
+ *  - **Stored plan exists** → slot in any contacts that don't have an entry yet
+ *    (contacts added after the week was frozen) via {@link findSlotForContact}.
+ *
+ * Pure function: performs no database access and mutates nothing. Callers are
+ * responsible for reading `storedPlan` and inserting the returned rows.
+ *
+ * @param contacts   All contacts.
+ * @param settings   Current settings.
+ * @param weekStart  Monday of the target week, in local time (= Europe/Berlin).
+ * @param storedPlan The plan rows already stored for this week (needs at least
+ *                   `contact_id` and `scheduled_date`).
+ * @returns Rows ready to insert into `weekly_plan`. Empty when the week is paused
+ *          or nothing is due / no free slot exists.
+ */
+export function computePlanInserts(
+  contacts: Contact[],
+  settings: Settings,
+  weekStart: Date,
+  storedPlan: ReadonlyArray<{ contact_id: string; scheduled_date: string }>,
+): PlanRow[] {
+  const weekKey = toISODate(weekStart);
+  if ((settings.paused_weeks ?? []).includes(weekKey)) return [];
+
+  // No frozen plan yet — compute and freeze the whole week.
+  if (storedPlan.length === 0) {
+    return scheduleWeek(contacts, settings, weekStart).map(({ contact, date, time }) => ({
+      week_start: weekKey,
+      contact_id: contact.id,
+      scheduled_date: date,
+      scheduled_time: time,
+    }));
+  }
+
+  // Frozen plan exists — slot in contacts that have no entry yet (new arrivals).
+  const plannedIds = new Set(storedPlan.map((p) => p.contact_id));
+  const usedDates = new Map<string, number>();
+  storedPlan.forEach((p) => usedDates.set(p.scheduled_date, (usedDates.get(p.scheduled_date) ?? 0) + 1));
+
+  const unplanned = contacts
+    .filter((c) => !plannedIds.has(c.id))
+    .sort((a, b) => getDaysOverdue(b) - getDaysOverdue(a));
+
+  const additions: PlanRow[] = [];
+  for (const contact of unplanned) {
+    const slot = findSlotForContact(contact, settings, weekStart, usedDates);
+    if (slot) {
+      additions.push({ week_start: weekKey, contact_id: contact.id, scheduled_date: slot.date, scheduled_time: slot.time });
+      usedDates.set(slot.date, (usedDates.get(slot.date) ?? 0) + 1);
+    }
+  }
+  return additions;
+}

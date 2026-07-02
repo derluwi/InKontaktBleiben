@@ -1,0 +1,191 @@
+IN KONTAKT BLEIBEN – Technische Dokumentation
+Stand: 09.03.2026
+================================================
+
+
+WAS MACHT DIE APP?
+------------------
+"In Kontakt Bleiben" ist eine persönliche Netzwerkpflege-App als PWA (Progressive Web App).
+Sie hilft dabei, regelmäßig mit bestimmten Menschen telefonisch in Kontakt zu bleiben,
+indem sie automatisch einen Wochenplan erstellt: Wer ist diese Woche dran? Wann?
+
+Die App läuft im Browser (Desktop und Mobil) und kann auf dem iPhone-Homescreen
+installiert werden wie eine native App.
+
+
+TECH-STACK IM ÜBERBLICK
+------------------------
+- Frontend:   React + Vite + TypeScript + Tailwind CSS + shadcn/ui
+- Backend:    Supabase (PostgreSQL-Datenbank + REST-API)
+- Hosting:    Vercel (Frontend + Serverless Functions)
+- Kalender:   ICS-Feed (abonnierbar in Apple Kalender)
+
+
+ORDNERSTRUKTUR
+--------------
+InKontaktBleiben/
+├── src/
+│   ├── components/
+│   │   └── ContactForm.tsx      – Formular zum Anlegen/Bearbeiten von Kontakten (Sheet)
+│   ├── lib/
+│   │   ├── supabase.ts          – Supabase-Client (Datenbankverbindung)
+│   │   └── scheduling.ts        – Planungslogik (wer kommt wann dran?)
+│   ├── pages/
+│   │   ├── WeeklyViewPage.tsx   – Wochenansicht (Hauptseite)
+│   │   ├── ContactsPage.tsx     – Kontaktverwaltung
+│   │   └── SettingsPage.tsx     – Einstellungen + Kalender-Abo-URL
+│   ├── types/
+│   │   ├── index.ts             – TypeScript-Typen (Contact, Settings, ScheduledCall)
+│   │   └── contact-picker.d.ts  – Typ-Deklaration für iOS-Adressbuch-API
+│   └── App.tsx                  – Navigation (Bottom-Tabs), Root-Komponente
+├── api/
+│   ├── calendar.ts              – Vercel Serverless Function: liefert ICS-Kalender-Feed
+│   └── cron.ts                  – Täglicher Cron: friert den Wochenplan automatisch ein
+├── public/
+│   └── manifest.json            – PWA-Manifest (Icon, Name, Farben für Homescreen)
+├── vercel.json                  – Vercel-Konfiguration (SPA-Routing + API-Ausnahmen)
+└── .env.local                   – Lokale Umgebungsvariablen (Supabase-URL + Keys)
+
+
+ROLLE VON SUPABASE
+------------------
+Supabase ist die Datenbank. Sie speichert alles dauerhaft.
+
+Tabellen:
+
+1. contacts
+   – Jeder Kontakt mit Name, Typ (beruflich/privat), Frequenz,
+     Telefonnummer, Notizen, Datum des letzten Anrufs.
+
+2. settings (immer genau 1 Zeile, id=1)
+   – Konfiguration: max. Anrufe pro Woche, Uhrzeiten, ob Abende/Wochenende
+     erlaubt sind, welche Wochen pausiert sind, geheimer Token für den Kalender-Feed.
+
+3. weekly_plan
+   – Der eingefrorene Wochenplan: welcher Kontakt soll an welchem Tag und
+     zu welcher Uhrzeit angerufen werden. Wird einmal pro Woche generiert
+     und dann nicht mehr verändert (außer bei Neuzugängen in freie Slots).
+
+Das Frontend kommuniziert mit Supabase über den "anon key" (öffentlicher Schlüssel,
+abgesichert durch Row Level Security auf "Allow all").
+Die Serverless Function (ICS-Feed) nutzt den "service role key" (vollen Datenbankzugriff,
+läuft nur serverseitig, nie im Browser).
+
+Supabase-Projekt: smcbwwndebxekeivvmhw.supabase.co
+
+
+ROLLE VON VERCEL
+----------------
+Vercel hostet zwei Dinge:
+
+1. Das React-Frontend (statische Dateien nach "npm run build")
+   → Erreichbar unter: https://inkontaktbleiben.vercel.app
+   → Alle URLs werden per vercel.json auf index.html umgeleitet (SPA-Routing)
+
+2. Die Serverless Function api/calendar.ts
+   → Erreichbar unter: /api/calendar?token=XXXX
+   → Läuft als Node.js-Funktion auf Vercel-Servern (UTC-Zeitzone!)
+   → Liefert einen ICS-Kalender-Feed für Apple Kalender
+   → Authentifizierung: Token muss mit settings.calendar_token übereinstimmen
+
+3. Die Serverless Function api/cron.ts (täglicher Cron-Job)
+   → Wird von Vercel automatisch jeden Morgen um 03:00 UTC aufgerufen
+     (= 04:00 CET / 05:00 CEST). Konfiguriert in vercel.json unter "crons".
+   → Stellt sicher, dass der Wochenplan der aktuellen Woche in weekly_plan
+     eingefroren ist – unabhängig davon, ob die App geöffnet wurde.
+   → Nutzt dieselbe Planungslogik wie das Frontend (src/lib/scheduling.ts,
+     computePlanInserts). Damit die lokale Zeitrechnung stimmt, läuft die
+     Funktion mit TZ=Europe/Berlin.
+   → Idempotent: friert die Woche ein, wenn noch nichts existiert, und schleust
+     sonst nur neu hinzugekommene Kontakte in freie Slots ein.
+   → Geschützt über CRON_SECRET (Vercel sendet ihn als Bearer-Token).
+
+Deployment: Jeder git push auf den master-Branch triggert automatisch ein
+neues Deployment auf Vercel (verbunden via GitHub).
+
+GitHub-Repo: https://github.com/derluwi/InKontaktBleiben
+
+
+WIE DER WOCHENPLAN FUNKTIONIERT
+---------------------------------
+Die Planungslogik liegt in src/lib/scheduling.ts.
+
+Ablauf:
+1. Alle Kontakte werden nach Dringlichkeit sortiert:
+   - Neue Kontakte (noch nie angerufen) kommen zuerst
+   - Danach sortiert nach "Tage überfällig" (absteigend)
+   - Tiebreaker: ältester Kontakt zuerst (created_at)
+
+2. Die Top-N werden ausgewählt (N = max_calls_per_week aus Settings)
+
+3. Slot-Zuweisung:
+   - Berufliche Kontakte: Mo–Fr zur work_call_time (z.B. 11:00)
+   - Private Kontakte: Mo–Fr abends (optional) oder Wochenende (optional)
+   - Max. 1 Anruf pro Tag (unabhängig von Kategorie)
+   - Vergangene Slots werden übersprungen (isFuture-Filter)
+   - Neue Kontakte bekommen frühestens 12h nach Anlage einen Termin
+
+4. Der Plan wird in der Datenbank (weekly_plan) gespeichert und eingefroren.
+   Neue Kontakte, die danach hinzugefügt werden, bekommen einen freien Slot
+   zugeteilt – wenn keiner mehr frei ist, kommen sie nächste Woche dran.
+   Gelöschte Kontakte fallen automatisch aus dem Plan heraus.
+   Nächste Woche: frisch berechnen.
+
+"Als angerufen markieren" (Telefon-Button):
+   Setzt das Feld last_called_at auf das heutige Datum.
+   Das System setzt dieses Datum NIE automatisch – nur der Nutzer.
+
+
+DER ICS-KALENDER-FEED
+----------------------
+URL: https://inkontaktbleiben.vercel.app/api/calendar?token=DEIN_TOKEN
+
+Der Token steht in den Einstellungen der App und kann dort kopiert werden.
+
+Apple Kalender abonniert diese URL und fragt regelmäßig nach Updates.
+Jeder Eintrag im Kalender ist ein 30-minütiger Termin mit Alarm 10 Minuten vorher.
+Wenn eine Telefonnummer hinterlegt ist, steht sie als klickbarer tel:-Link
+in der Terminbeschreibung.
+
+Die Serverless Function (api/calendar.ts) liest den gespeicherten Wochenplan aus
+weekly_plan und gibt ihn als ICS zurück. Der Feed berechnet NICHTS selbst – er zeigt
+nur, was in weekly_plan eingefroren ist. Für das Einfrieren sorgen zwei Auslöser:
+(1) der tägliche Cron-Job (api/cron.ts) und (2) das Öffnen der App. Dadurch ist der
+Kalender immer gefüllt, auch wenn die App tagelang nicht geöffnet wird.
+
+
+TIMEZONES – WICHTIGER HINWEIS
+------------------------------
+Der Nutzer ist in CET (UTC+1) bzw. CEST (UTC+2).
+Das React-Frontend läuft im Browser des Nutzers → lokale Zeitzone stimmt.
+Die Vercel Serverless Function läuft in UTC → Datumsberechnungen müssen
+explizit die Zeitzone Europe/Berlin berücksichtigen (via toLocaleDateString('sv-SE')).
+Dieser Unterschied war die Ursache eines frühen Bugs (Slots um 1 Tag verschoben).
+
+
+PWA / IPHONE HOMESCREEN
+------------------------
+Die App kann auf dem iPhone-Homescreen installiert werden:
+Safari → Teilen-Button → "Zum Home-Bildschirm hinzufügen"
+Danach startet sie ohne Browser-UI, sieht aus wie eine native App.
+Das Manifest (public/manifest.json) definiert Icon, Name und Startfarbe.
+
+
+LOKALE ENTWICKLUNG
+------------------
+Voraussetzungen: Node.js, npm
+
+  npm install          – Abhängigkeiten installieren
+  npm run dev          – Lokaler Dev-Server (http://localhost:5173)
+  npm run build        – Produktions-Build (Ordner: dist/)
+
+Umgebungsvariablen (.env.local):
+  VITE_SUPABASE_URL=https://smcbwwndebxekeivvmhw.supabase.co
+  VITE_SUPABASE_ANON_KEY=...
+  SUPABASE_URL=...              (für api/*, wird von Vercel gesetzt)
+  SUPABASE_SERVICE_ROLE_KEY=... (für api/*, wird von Vercel gesetzt)
+  CRON_SECRET=...               (schützt /api/cron, in Vercel setzen)
+  TZ=Europe/Berlin              (in Vercel setzen, damit der Cron korrekt rechnet)
+
+Die Vercel-Umgebungsvariablen werden im Vercel-Dashboard unter
+Project → Settings → Environment Variables gepflegt.

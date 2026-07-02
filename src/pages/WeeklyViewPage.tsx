@@ -3,7 +3,7 @@ import { Phone, Check, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/lib/supabase';
-import { scheduleWeek, getWeekStart, toISODate, findSlotForContact, getDaysOverdue } from '@/lib/scheduling';
+import { getWeekStart, toISODate, computePlanInserts } from '@/lib/scheduling';
 import type { Contact, Settings, ScheduledCall } from '@/types';
 
 const DAY_NAMES = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
@@ -47,56 +47,27 @@ export default function WeeklyViewPage() {
     setLoadError(null);
     setSettings(settingsData as Settings);
 
-    if (!storedPlan || storedPlan.length === 0) {
-      // No frozen plan yet for this week — compute and store it
-      const plan = scheduleWeek(contacts as Contact[], settingsData as Settings, weekStart);
-      if (plan.length > 0) {
-        const { error: insertError } = await supabase.from('weekly_plan').insert(
-          plan.map(({ contact, date, time }) => ({
-            week_start: weekKey,
-            contact_id: contact.id,
-            scheduled_date: date,
-            scheduled_time: time,
-          })),
-        );
-        if (insertError) console.error('weekly_plan insert failed:', insertError.message);
-      }
-      setSchedule(plan);
-    } else {
-      // Frozen plan exists — slot in new contacts that have no entry yet
-      const plannedIds = new Set(storedPlan.map((p) => p.contact_id as string));
-      const usedDates = new Map<string, number>();
-      storedPlan.forEach((p) => {
-        const d = p.scheduled_date as string;
-        usedDates.set(d, (usedDates.get(d) ?? 0) + 1);
-      });
-      const unplanned = (contacts as Contact[])
-        .filter((c) => !plannedIds.has(c.id))
-        .sort((a, b) => getDaysOverdue(b) - getDaysOverdue(a));
-
-      if (unplanned.length > 0) {
-        const additions: { week_start: string; contact_id: string; scheduled_date: string; scheduled_time: string }[] = [];
-        for (const contact of unplanned) {
-          const slot = findSlotForContact(contact, settingsData as Settings, weekStart, usedDates);
-          if (slot) {
-            additions.push({ week_start: weekKey, contact_id: contact.id, scheduled_date: slot.date, scheduled_time: slot.time });
-            usedDates.set(slot.date, (usedDates.get(slot.date) ?? 0) + 1);
-          }
-        }
-        if (additions.length > 0) {
-          const { error: insertError } = await supabase.from('weekly_plan').insert(additions);
-          if (insertError) console.error('weekly_plan insert failed:', insertError.message);
-          storedPlan.push(...additions);
-        }
-      }
-
-      const contactMap = new Map((contacts as Contact[]).map((c) => [c.id, c]));
-      const schedule: ScheduledCall[] = storedPlan
-        .map((p) => ({ contact: contactMap.get(p.contact_id as string)!, date: p.scheduled_date as string, time: p.scheduled_time as string }))
-        .filter((s) => s.contact)
-        .sort((a, b) => a.date.localeCompare(b.date));
-      setSchedule(schedule);
+    // Freeze the week (or slot in new contacts) via the shared scheduling logic —
+    // the exact same computation the cron job runs headlessly. See computePlanInserts.
+    const existing = (storedPlan ?? []) as Array<{ contact_id: string; scheduled_date: string; scheduled_time: string }>;
+    const inserts = computePlanInserts(
+      contacts as Contact[],
+      settingsData as Settings,
+      weekStart,
+      existing,
+    );
+    if (inserts.length > 0) {
+      const { error: insertError } = await supabase.from('weekly_plan').insert(inserts);
+      if (insertError) console.error('weekly_plan insert failed:', insertError.message);
     }
+
+    // Build the displayed schedule from stored rows + freshly inserted rows.
+    const contactMap = new Map((contacts as Contact[]).map((c) => [c.id, c]));
+    const schedule: ScheduledCall[] = [...existing, ...inserts]
+      .map((p) => ({ contact: contactMap.get(p.contact_id)!, date: p.scheduled_date, time: p.scheduled_time }))
+      .filter((s) => s.contact)
+      .sort((a, b) => a.date.localeCompare(b.date));
+    setSchedule(schedule);
 
     setLoading(false);
   }
